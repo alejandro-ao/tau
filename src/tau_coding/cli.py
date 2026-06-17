@@ -19,7 +19,8 @@ from tau_agent import (
     ToolExecutionStartEvent,
 )
 from tau_ai import ModelProvider, OpenAICompatibleProvider, openai_compatible_config_from_env
-from tau_coding import __version__, create_coding_tools
+from tau_coding import __version__, create_coding_tools, load_skills
+from tau_coding.system_prompt import BuildSystemPromptOptions, build_system_prompt
 
 DEFAULT_MODEL = "gpt-4.1-mini"
 
@@ -93,11 +94,13 @@ async def run_print_mode(
     can fail non-interactive runs while still rendering the error message.
     """
     tools = create_coding_tools(cwd=cwd)
+    skills = load_skills()
+    system = build_system_prompt(BuildSystemPromptOptions(cwd=cwd, tools=tools, skills=skills))
     harness = AgentHarness(
         AgentHarnessConfig(
             provider=provider,
             model=model,
-            system=build_default_system_prompt(),
+            system=system,
             tools=tools,
         )
     )
@@ -154,19 +157,3 @@ class PrintModeRenderer:
             self._assistant_ended = True
         elif final and not self._assistant_started:
             self._assistant_ended = True
-
-
-def build_default_system_prompt() -> str:
-    """Build the minimal system prompt needed before full prompt assembly exists."""
-    tools = create_coding_tools()
-    snippets = [f"- {tool.name}: {tool.prompt_snippet or tool.description}" for tool in tools]
-    guidelines = [guideline for tool in tools for guideline in tool.prompt_guidelines]
-
-    sections = [
-        "You are Tau, a concise coding agent inspired by Pi.",
-        "Use the available tools to inspect and modify files when needed.",
-        "Available tools:\n" + "\n".join(snippets),
-    ]
-    if guidelines:
-        sections.append("Tool guidelines:\n" + "\n".join(f"- {line}" for line in guidelines))
-    return "\n\n".join(sections)

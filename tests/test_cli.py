@@ -12,7 +12,9 @@ from tau_ai import (
     ProviderTextDeltaEvent,
 )
 from tau_coding import cli
-from tau_coding.cli import app, build_default_system_prompt, run_print_mode
+from tau_coding.cli import app, run_print_mode
+from tau_coding.system_prompt import BuildSystemPromptOptions, build_system_prompt
+from tau_coding.tools import create_coding_tools
 
 
 def test_version_command() -> None:
@@ -27,14 +29,6 @@ def test_cli_without_prompt_prints_print_mode_hint() -> None:
 
     assert result.exit_code == 0
     assert "Tau print mode is installed" in result.stdout
-
-
-def test_default_system_prompt_includes_tool_snippets_and_guidelines() -> None:
-    prompt = build_default_system_prompt()
-
-    assert "You are Tau" in prompt
-    assert "- read: Read file contents" in prompt
-    assert "Use read to examine files instead of cat or sed." in prompt
 
 
 @pytest.mark.anyio
@@ -59,7 +53,9 @@ async def test_run_print_mode_streams_assistant_text(
     assert captured.out == "Hello\n"
     assert captured.err == ""
     assert provider.calls[0][0] == "fake"
-    assert provider.calls[0][1] == build_default_system_prompt()
+    assert provider.calls[0][1] == build_system_prompt(
+        BuildSystemPromptOptions(cwd=tmp_path, tools=create_coding_tools(cwd=tmp_path))
+    )
     assert [tool.name for tool in provider.calls[0][3]] == ["read", "write", "edit", "bash"]
 
 
