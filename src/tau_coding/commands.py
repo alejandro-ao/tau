@@ -73,6 +73,7 @@ class CommandResult:
     exit_requested: bool = False
     clear_requested: bool = False
     compact_summary: str | None = None
+    resume_session_id: str | None = None
     message: str | None = None
 
 
@@ -249,7 +250,7 @@ def create_default_command_registry() -> CommandRegistry:
         SlashCommand(
             name="resume",
             usage="/resume <session-id>",
-            description="Explain how to resume a session.",
+            description="Resume an indexed session in the TUI.",
             handler=_resume_command,
         )
     )
@@ -412,12 +413,17 @@ def _sessions_command(context: CommandContext) -> CommandResult:
 
 
 def _resume_command(context: CommandContext) -> CommandResult:
+    if not context.args:
+        return CommandResult(handled=True, message="Usage: /resume <session-id>")
+    manager = context.session.session_manager
+    if manager is None:
+        return CommandResult(handled=True, message="Session manager is not available.")
+    session_id = context.args.strip()
+    if manager.get_session(session_id) is None:
+        return CommandResult(handled=True, message=f"Unknown session: {session_id}")
     return CommandResult(
         handled=True,
-        message=(
-            "In-TUI session switching is not implemented yet. "
-            "Start Tau with: tau --resume <session-id>"
-        ),
+        resume_session_id=session_id,
     )
 
 

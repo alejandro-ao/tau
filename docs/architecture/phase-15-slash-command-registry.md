@@ -42,7 +42,7 @@ The default registry includes:
 - `/skills` — list loaded skills
 - `/skill` — explain `/skill:<name>` usage
 - `/sessions` — list indexed sessions when a session manager is available
-- `/resume` — explain the current resume flow
+- `/resume` — request an indexed session resume
 - `/model` — show the current model and note that switching is future work
 - `/provider` — note that provider switching is future work
 
@@ -86,7 +86,6 @@ This registry is the foundation for later phases:
 
 - TUI slash-command autocomplete can read command metadata from the registry.
 - Extensions can eventually contribute commands.
-- Provider/model/session switching commands can become real implementations.
 - A future command palette can show the same command metadata.
 
 ## Tests
@@ -107,4 +106,5 @@ The tests verify:
 - status and skills output
 - `/skill:<name>` passthrough behavior
 - indexed session listing
+- structured `/resume <session-id>` requests
 - TUI handling for `/clear`

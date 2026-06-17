@@ -221,6 +221,28 @@ def test_sessions_lists_indexed_sessions(tmp_path: Path) -> None:
     assert "Test session" in result.message
 
 
+def test_resume_command_requests_indexed_session(tmp_path: Path) -> None:
+    manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
+    record = manager.create_session(cwd=tmp_path, model="fake-model", title="Test session")
+    session = FakeSession(tmp_path, manager=manager)
+
+    result = create_default_command_registry().execute(session, f"/resume {record.id}")
+
+    assert result.resume_session_id == record.id
+    assert result.message is None
+
+
+def test_resume_command_rejects_missing_or_unknown_session(tmp_path: Path) -> None:
+    manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
+    session = FakeSession(tmp_path, manager=manager)
+
+    missing = create_default_command_registry().execute(session, "/resume")
+    unknown = create_default_command_registry().execute(session, "/resume missing")
+
+    assert missing.message == "Usage: /resume <session-id>"
+    assert unknown.message == "Unknown session: missing"
+
+
 def test_unknown_command_returns_message(tmp_path: Path) -> None:
     result = create_default_command_registry().execute(FakeSession(tmp_path), "/missing")
 

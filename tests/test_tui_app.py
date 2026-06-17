@@ -45,12 +45,15 @@ class FakeSession:
         self.resource_diagnostics = ()
         self.session_manager = None
         self.compact_summaries: list[str] = []
+        self.resumed_session_ids: list[str] = []
 
     def handle_command(self, text: str) -> CommandResult:
         if text == "/clear":
             return CommandResult(handled=True, clear_requested=True, message="Transcript cleared.")
         if text.startswith("/compact "):
             return CommandResult(handled=True, compact_summary=text.removeprefix("/compact "))
+        if text.startswith("/resume "):
+            return CommandResult(handled=True, resume_session_id=text.removeprefix("/resume "))
         return CommandResult(handled=False)
 
     def set_model(self, model: str) -> None:
@@ -59,6 +62,11 @@ class FakeSession:
     async def compact(self, summary: str) -> str:
         self.compact_summaries.append(summary)
         return "Compacted 2 context entries."
+
+    async def resume(self, session_id: str) -> str:
+        self.resumed_session_ids.append(session_id)
+        self.messages = (UserMessage(content="Restored prompt"),)
+        return f"Resumed session: {session_id}"
 
     async def prompt(self, text: str) -> AsyncIterator[AgentEvent]:
         for event in self.events:
@@ -170,6 +178,23 @@ async def test_tui_app_compact_command_runs_session_compaction() -> None:
         assert session.compact_summaries == ["Summary of earlier work."]
         assert ("status", "Compacted 2 context entries.") in [
             (item.role, item.text) for item in app.state.items
+        ]
+
+
+@pytest.mark.anyio
+async def test_tui_app_resume_command_reloads_visible_state() -> None:
+    session = FakeSession(messages=[UserMessage(content="Earlier")])
+    app = TauTuiApp(session)
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/resume session-1"
+        await pilot.press("enter")
+
+        assert session.resumed_session_ids == ["session-1"]
+        assert [(item.role, item.text) for item in app.state.items] == [
+            ("user", "Restored prompt"),
+            ("status", "Resumed session: session-1"),
         ]
 
 

@@ -536,6 +536,53 @@ async def test_session_switches_configured_provider(
     assert created_providers[0].closed is True
 
 
+@pytest.mark.anyio
+async def test_session_resumes_indexed_session(tmp_path: Path) -> None:
+    manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
+    first_record = manager.create_session(cwd=tmp_path / "first", model="fake", title="First")
+    second_cwd = tmp_path / "second"
+    second_cwd.mkdir(parents=True)
+    second_record = manager.create_session(cwd=second_cwd, model="fake", title="Second")
+    first_storage = JsonlSessionStorage(first_record.path)
+    second_storage = JsonlSessionStorage(second_record.path)
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Second answer")),
+            ]
+        ]
+    )
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=provider,
+            model="fake",
+            system="You are Tau.",
+            storage=first_storage,
+            cwd=first_record.cwd,
+            session_id=first_record.id,
+            session_manager=manager,
+        )
+    )
+    await second_storage.append(SessionInfoEntry(cwd=str(second_record.cwd)))
+    await second_storage.append(ModelChangeEntry(model="fake"))
+    await second_storage.append(MessageEntry(message=UserMessage(content="Earlier")))
+    await second_storage.append(MessageEntry(message=AssistantMessage(content="Restored")))
+
+    message = await session.resume(second_record.id)
+    _events = await _collect_session_events(session.prompt("Continue."))
+
+    assert message == f"Resumed session: {second_record.id}"
+    assert session.session_id == second_record.id
+    assert session.cwd == second_record.cwd
+    assert [item.content for item in session.messages[:2]] == ["Earlier", "Restored"]
+    assert provider.calls[0][2] == [
+        UserMessage(content="Earlier"),
+        AssistantMessage(content="Restored"),
+        UserMessage(content="Continue."),
+    ]
+
+
 def test_minimal_commands_are_handled(tmp_path: Path) -> None:
     session = CodingSession(
         _config(tmp_path, FakeProvider([]), JsonlSessionStorage(tmp_path / "session.jsonl")),

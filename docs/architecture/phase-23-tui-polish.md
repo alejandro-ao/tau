@@ -30,6 +30,8 @@ provider switching without adding a separate modal UI.
 
 The prompt also suggests indexed session ids for `/resume <session-id>`, giving
 the TUI a lightweight session picker path through the same completion UI.
+Submitting the command reloads the selected session through `CodingSession` and
+rebuilds the visible transcript in place.
 
 The frontend boundary is now documented in [Building a Custom TUI](../custom-tui.md).
 That guide describes how another terminal UI can consume `CodingSession`,
@@ -44,9 +46,9 @@ commands, and rendering.
 
 ## Still deferred
 
-The larger Phase 23 roadmap still includes in-process session switching, a diff
-viewer, configurable keybindings, and deeper theme polish. Those should remain
-separate atomic slices.
+The larger Phase 23 roadmap still includes a richer modal session picker, a
+diff viewer, configurable keybindings, and deeper theme polish. Those should
+remain separate atomic slices.
 
 ## Tests
 

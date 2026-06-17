@@ -228,6 +228,14 @@ class TauTuiApp(App[None]):
                     self.state.add_item("status", compact_message)
                 except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
                     self.state.add_item("error", f"Error: {exc}")
+            if command.resume_session_id is not None:
+                try:
+                    resume_message = await self.session.resume(command.resume_session_id)
+                    self.state.clear()
+                    self.state.load_messages(self.session.messages)
+                    self.state.add_item("status", resume_message)
+                except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
+                    self.state.add_item("error", f"Error: {exc}")
             if command.message:
                 self.state.add_item("status", command.message)
             self._refresh()

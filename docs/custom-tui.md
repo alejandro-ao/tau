@@ -158,6 +158,14 @@ For a custom session picker:
 4. Load the session with `await CodingSession.load(config)`.
 5. Rebuild the visible transcript from `session.messages`.
 
+If the frontend is already holding a `CodingSession`, it can also call:
+
+```python
+message = await session.resume(session_id)
+```
+
+Then clear and rebuild the visible transcript from `session.messages`.
+
 Keep the picker in the frontend package. The reusable agent harness should not
 know how sessions are displayed or selected.
 

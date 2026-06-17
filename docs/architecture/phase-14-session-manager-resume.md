@@ -108,6 +108,15 @@ tau --resume <session-id>
 
 If the session id is unknown, Tau exits with a clear error.
 
+Later TUI polish added in-process session switching through:
+
+```text
+/resume <session-id>
+```
+
+The command reloads the selected indexed session and rebuilds the visible
+transcript without restarting Tau.
+
 ## CLI session listing
 
 Tau can list indexed sessions:
@@ -122,7 +131,7 @@ The first implementation prints tab-separated rows:
 <id>    <title>    <model>    <cwd>
 ```
 
-A richer session picker belongs in a later TUI polish phase.
+A richer modal session picker belongs in a later TUI polish phase.
 
 ## Tests
 

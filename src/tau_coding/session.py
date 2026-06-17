@@ -325,6 +325,49 @@ class CodingSession:
                 )
             )
 
+    async def resume(self, session_id: str) -> str:
+        """Replace this session's active state with another indexed session."""
+        manager = self._config.session_manager
+        if manager is None:
+            raise ValueError("Session manager is not available")
+        record = manager.get_session(session_id)
+        if record is None:
+            raise ValueError(f"Unknown session: {session_id}")
+
+        replacement = await type(self).load(
+            CodingSessionConfig(
+                provider=self._harness.config.provider,
+                model=record.model or self.model,
+                cwd=record.cwd,
+                storage=jsonl_session_storage(record.path),
+                system=self._config.system,
+                custom_system_prompt=self._config.custom_system_prompt,
+                append_system_prompt=self._config.append_system_prompt,
+                context_files=self._config.context_files,
+                resource_paths=self._config.resource_paths,
+                session_id=record.id,
+                session_manager=manager,
+                command_registry=self._command_registry,
+                provider_name=self._provider_name,
+                provider_settings=self._provider_settings,
+                auto_compact_token_threshold=self._auto_compact_token_threshold,
+            )
+        )
+        self._config = replacement._config
+        self._state = replacement._state
+        self._harness = replacement._harness
+        self._last_parent_id = replacement._last_parent_id
+        self._skills = replacement._skills
+        self._prompt_templates = replacement._prompt_templates
+        self._context_files = replacement._context_files
+        self._resource_diagnostics = replacement._resource_diagnostics
+        self._command_registry = replacement._command_registry
+        self._provider_name = replacement._provider_name
+        self._provider_settings = replacement._provider_settings
+        self._resource_paths = replacement._resource_paths
+        self._auto_compact_token_threshold = replacement._auto_compact_token_threshold
+        return f"Resumed session: {record.id}"
+
     async def compact(self, summary: str) -> str:
         """Append a manual compaction summary and rebuild active context."""
         normalized_summary = summary.strip()
