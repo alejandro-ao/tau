@@ -88,6 +88,7 @@ def test_session_sidebar_renders_session_metadata() -> None:
     console.print(render_session_sidebar(FakeSession()))
 
     output = console.export_text()
+    assert "_______" in output
     assert "session" in output
     assert "fake-model" in output
     assert "tools" in output
@@ -98,10 +99,11 @@ def test_session_sidebar_renders_session_metadata() -> None:
 
 def test_session_sidebar_uses_square_muted_panels() -> None:
     sidebar = render_session_sidebar(FakeSession())
+    panels = [renderable for renderable in sidebar.renderables if isinstance(renderable, Panel)]
 
-    assert all(isinstance(renderable, Panel) for renderable in sidebar.renderables)
-    assert all(renderable.box == box.SQUARE for renderable in sidebar.renderables)
-    assert {str(renderable.border_style) for renderable in sidebar.renderables} == {"#141922"}
+    assert len(panels) == 4
+    assert all(renderable.box == box.SQUARE for renderable in panels)
+    assert {str(renderable.border_style) for renderable in panels} == {"#141922"}
 
 
 def test_chat_items_render_as_unlabeled_blocks() -> None:

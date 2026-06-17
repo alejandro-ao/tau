@@ -24,6 +24,11 @@ from tau_coding.tui.autocomplete import CompletionState
 from tau_coding.tui.config import TAU_DARK_THEME, TuiTheme
 from tau_coding.tui.state import ChatItem, TuiState
 
+TAU_ASCII_LOGO = r""" _______
+   |
+   |
+   |"""
+
 
 class SessionSummarySource(Protocol):
     """Session attributes displayed by the sidebar."""
@@ -144,8 +149,10 @@ def render_session_sidebar(
         empty="No prompt templates",
         theme=theme,
     )
+    logo = Text(TAU_ASCII_LOGO, style=f"bold {theme.prompt_text}")
 
     return Group(
+        Padding(logo, (0, 0, 1, 1)),
         Panel(
             metadata,
             title="session",
