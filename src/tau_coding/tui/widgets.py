@@ -15,15 +15,8 @@ from tau_agent.tools import AgentTool
 from tau_coding.prompt_templates import PromptTemplate
 from tau_coding.skills import Skill
 from tau_coding.tui.autocomplete import CompletionState
+from tau_coding.tui.config import TAU_DARK_THEME, TuiTheme
 from tau_coding.tui.state import ChatItem, TuiState
-
-_ROLE_BLOCK_STYLES = {
-    "user": ("#58a6ff", "white on #101923"),
-    "assistant": ("#3fb950", "white on #101f17"),
-    "tool": ("#d29922", "white on #201b10"),
-    "error": ("#f85149", "white on #241315"),
-    "status": ("#8b949e", "white on #161b22"),
-}
 
 
 class SessionSummarySource(Protocol):
@@ -51,78 +44,146 @@ class SessionSummarySource(Protocol):
 class SessionSidebar(Static):
     """Compact sidebar with current session metadata."""
 
-    def update_from_session(self, session: SessionSummarySource) -> None:
+    def update_from_session(
+        self,
+        session: SessionSummarySource,
+        *,
+        theme: TuiTheme = TAU_DARK_THEME,
+    ) -> None:
         """Redraw the sidebar from current session metadata."""
-        self.update(render_session_sidebar(session))
+        self.update(render_session_sidebar(session, theme=theme))
 
 
 class TranscriptView(RichLog):
     """Scrollable transcript view backed by ``TuiState``."""
 
-    def update_from_state(self, state: TuiState) -> None:
+    def update_from_state(
+        self,
+        state: TuiState,
+        *,
+        theme: TuiTheme = TAU_DARK_THEME,
+    ) -> None:
         """Redraw the transcript from display state."""
         self.clear()
         for item in state.items:
-            self.write(render_chat_item(item), expand=True, shrink=True, scroll_end=True)
+            self.write(
+                render_chat_item(item, theme=theme),
+                expand=True,
+                shrink=True,
+                scroll_end=True,
+            )
         if state.assistant_buffer:
             self.write(
-                render_chat_item(ChatItem(role="assistant", text=state.assistant_buffer)),
+                render_chat_item(
+                    ChatItem(role="assistant", text=state.assistant_buffer),
+                    theme=theme,
+                ),
                 expand=True,
                 shrink=True,
                 scroll_end=True,
             )
 
 
-def render_session_sidebar(session: SessionSummarySource) -> RenderableType:
+def render_session_sidebar(
+    session: SessionSummarySource,
+    *,
+    theme: TuiTheme = TAU_DARK_THEME,
+) -> RenderableType:
     """Render a dark, minimalist summary of the active coding session."""
     metadata = Table.grid(padding=(0, 1))
-    metadata.add_column(style="bright_black", no_wrap=True)
-    metadata.add_column(style="white")
+    metadata.add_column(style=theme.completion_description, no_wrap=True)
+    metadata.add_column(style=theme.prompt_text)
     metadata.add_row("provider", session.provider_name)
     metadata.add_row("model", session.model)
     metadata.add_row("cwd", _short_path(session.cwd))
     metadata.add_row("tools", str(len(session.tools)))
     metadata.add_row("skills", str(len(session.skills)))
 
-    tools = _bullet_list([tool.name for tool in session.tools], empty="No tools")
-    skills = _bullet_list([skill.name for skill in session.skills], empty="No skills loaded yet")
+    tools = _bullet_list([tool.name for tool in session.tools], empty="No tools", theme=theme)
+    skills = _bullet_list(
+        [skill.name for skill in session.skills],
+        empty="No skills loaded yet",
+        theme=theme,
+    )
     prompts = _bullet_list(
         [template.name for template in session.prompt_templates],
         empty="No prompt templates",
+        theme=theme,
     )
 
     return Group(
-        Panel(metadata, title="session", border_style="bright_black", padding=(0, 1)),
-        Panel(tools, title="tools", border_style="cyan", padding=(0, 1)),
-        Panel(skills, title="skills", border_style="green", padding=(0, 1)),
-        Panel(prompts, title="prompts", border_style="magenta", padding=(0, 1)),
+        Panel(metadata, title="session", border_style=theme.border, padding=(0, 1)),
+        Panel(
+            tools,
+            title="tools",
+            border_style=theme.role_styles["tool"].border,
+            padding=(0, 1),
+        ),
+        Panel(
+            skills,
+            title="skills",
+            border_style=theme.role_styles["assistant"].border,
+            padding=(0, 1),
+        ),
+        Panel(
+            prompts,
+            title="prompts",
+            border_style=theme.role_styles["user"].border,
+            padding=(0, 1),
+        ),
     )
 
 
-def render_chat_item(item: ChatItem) -> Panel:
+def render_chat_item(
+    item: ChatItem,
+    *,
+    theme: TuiTheme = TAU_DARK_THEME,
+) -> Panel:
     """Render a chat item as a standalone colored transcript block."""
-    border_style, body_style = _ROLE_BLOCK_STYLES[item.role]
-    body = _render_chat_body(item.text, body_style=body_style)
+    role_style = theme.role_styles[item.role]
+    body = _render_chat_body(
+        item.text,
+        body_style=role_style.body,
+        syntax_theme=theme.syntax_theme,
+    )
     return Panel(
         body,
-        border_style=border_style,
-        style=body_style,
+        border_style=role_style.border,
+        style=role_style.body,
         padding=(0, 1),
         expand=True,
     )
 
 
-def _render_chat_body(text: str, *, body_style: str) -> RenderableType:
-    patch_body = _render_patch_body(text, body_style=body_style)
+def _render_chat_body(
+    text: str,
+    *,
+    body_style: str,
+    syntax_theme: str,
+) -> RenderableType:
+    patch_body = _render_patch_body(
+        text,
+        body_style=body_style,
+        syntax_theme=syntax_theme,
+    )
     if patch_body is not None:
         return patch_body
-    fenced_body = _render_fenced_body(text, body_style=body_style)
+    fenced_body = _render_fenced_body(
+        text,
+        body_style=body_style,
+        syntax_theme=syntax_theme,
+    )
     if fenced_body is not None:
         return fenced_body
     return _plain_text(text, body_style=body_style)
 
 
-def _render_patch_body(text: str, *, body_style: str) -> RenderableType | None:
+def _render_patch_body(
+    text: str,
+    *,
+    body_style: str,
+    syntax_theme: str,
+) -> RenderableType | None:
     marker = "\nPatch:\n"
     if marker not in text:
         return None
@@ -134,14 +195,19 @@ def _render_patch_body(text: str, *, body_style: str) -> RenderableType | None:
         Syntax(
             patch.rstrip("\n"),
             "diff",
-            theme="ansi_dark",
+            theme=syntax_theme,
             word_wrap=True,
             background_color="default",
         ),
     )
 
 
-def _render_fenced_body(text: str, *, body_style: str) -> RenderableType | None:
+def _render_fenced_body(
+    text: str,
+    *,
+    body_style: str,
+    syntax_theme: str,
+) -> RenderableType | None:
     if "```" not in text:
         return None
 
@@ -171,7 +237,7 @@ def _render_fenced_body(text: str, *, body_style: str) -> RenderableType | None:
             Syntax(
                 code.rstrip("\n"),
                 language,
-                theme="ansi_dark",
+                theme=syntax_theme,
                 word_wrap=True,
                 background_color="default",
             )
@@ -201,7 +267,11 @@ def _fence_language(raw: str) -> str:
     return language or "text"
 
 
-def render_completion_suggestions(state: CompletionState) -> Text:
+def render_completion_suggestions(
+    state: CompletionState,
+    *,
+    theme: TuiTheme = TAU_DARK_THEME,
+) -> Text:
     """Render prompt completion suggestions."""
     text = Text()
     for index, item in enumerate(state.items[:6]):
@@ -209,8 +279,10 @@ def render_completion_suggestions(state: CompletionState) -> Text:
             text.append("\n")
         selected = index == state.selected_index
         prefix = "› " if selected else "  "
-        style = "bold white on #238636" if selected else "white"
-        description_style = "white on #238636" if selected else "bright_black"
+        style = theme.completion_selected if selected else theme.prompt_text
+        description_style = (
+            theme.completion_selected_description if selected else theme.completion_description
+        )
         text.append(prefix, style=style)
         text.append(item.display, style=style)
         if item.description:
@@ -219,17 +291,22 @@ def render_completion_suggestions(state: CompletionState) -> Text:
     return text
 
 
-def _bullet_list(items: Sequence[str], *, empty: str) -> Text:
+def _bullet_list(
+    items: Sequence[str],
+    *,
+    empty: str,
+    theme: TuiTheme,
+) -> Text:
     text = Text()
     if not items:
-        text.append(empty, style="bright_black")
+        text.append(empty, style=theme.completion_description)
         return text
 
     for index, item in enumerate(items):
         if index:
             text.append("\n")
-        text.append("• ", style="bright_black")
-        text.append(item, style="white")
+        text.append("• ", style=theme.completion_description)
+        text.append(item, style=theme.prompt_text)
     return text
 
 

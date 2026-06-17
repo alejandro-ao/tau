@@ -93,6 +93,7 @@ Example:
 
 ```json
 {
+  "theme": "high-contrast",
   "keybindings": {
     "cancel": "escape",
     "command_palette": "ctrl+j",
@@ -104,10 +105,15 @@ Example:
 }
 ```
 
+The built-in themes are:
+
+- `tau-dark`, the default muted dark theme.
+- `high-contrast`, a sharper dark theme for brighter terminal contrast.
+
 Any omitted keybinding uses the built-in default. Key names use Textual's key
 syntax, such as `ctrl+k`, `tab`, `down`, `up`, and `f2`. Tau rejects unknown
-keybinding names, empty keys, and duplicate assignments so mistakes fail early
-instead of silently changing terminal behavior.
+themes, unknown keybinding names, empty keys, and duplicate assignments so
+mistakes fail early instead of silently changing terminal behavior.
 
 ## Sessions
 

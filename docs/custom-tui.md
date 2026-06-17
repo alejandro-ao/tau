@@ -151,10 +151,10 @@ A custom picker UI can also read the same data directly:
 
 ## Keybindings
 
-Keybindings are frontend policy. The built-in Textual app reads optional
+Keybindings and themes are frontend policy. The built-in Textual app reads optional
 settings from `~/.tau/tui.json` through `tau_coding.tui.load_tui_settings()`,
 but a custom TUI can ignore that file or map the same action names to its own
-input system.
+input and styling system.
 
 The built-in configurable action names are:
 
@@ -164,6 +164,10 @@ The built-in configurable action names are:
 - `completion_next`
 - `completion_previous`
 - `quit`
+
+The built-in themes are `tau-dark` and `high-contrast`. They resolve to
+`TuiTheme` objects used by the Textual app and widgets; custom frontends can
+reuse those objects or define their own palette outside `tau_agent`.
 
 ## Session Switching
 
@@ -226,6 +230,6 @@ A custom TUI should prove these behaviors before it is considered compatible:
 - Slash commands run through `session.handle_command()`.
 - `/skill:<name>` prompts pass through to `session.prompt()`.
 - Cancellation calls `session.cancel()`.
-- Keybindings are owned by the frontend and do not leak into `tau_agent`.
+- Keybindings and themes are owned by the frontend and do not leak into `tau_agent`.
 - Model/provider choices come from the session, not hardcoded UI lists.
 - Session persistence is handled through `CodingSession` and `SessionManager`.

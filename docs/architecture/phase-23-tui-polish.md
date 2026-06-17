@@ -49,6 +49,12 @@ The built-in Textual frontend now reads optional keybinding settings from
 navigation, cancellation, and quit keys while keeping the configuration in
 `tau_coding.tui` instead of the reusable agent harness.
 
+The same TUI settings file now supports named built-in themes. `tau-dark`
+remains the default, and `high-contrast` provides a brighter dark palette. Theme
+selection feeds Textual CSS variables plus Rich transcript/sidebar renderers, so
+the app chrome and message blocks stay visually consistent without adding UI
+policy to `tau_agent`.
+
 The frontend boundary is now documented in [Building a Custom TUI](../custom-tui.md).
 That guide describes how another terminal UI can consume `CodingSession`,
 `AgentEvent`, `TuiState`, and `TuiEventAdapter` without coupling to Textual
@@ -63,7 +69,7 @@ commands, and rendering.
 ## Still deferred
 
 The larger Phase 23 roadmap still includes a richer modal session picker,
-broader markdown transcript rendering, and deeper theme polish. Those should
+broader markdown transcript rendering, and more advanced picker UI. Those should
 remain separate atomic slices.
 
 ## Tests

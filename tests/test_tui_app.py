@@ -21,7 +21,7 @@ from tau_coding.system_prompt import ProjectContextFile
 from tau_coding.tools import create_coding_tools
 from tau_coding.tui import app as tui_app
 from tau_coding.tui.app import TauTuiApp
-from tau_coding.tui.config import TuiKeybindings, TuiSettings
+from tau_coding.tui.config import HIGH_CONTRAST_THEME, TuiKeybindings, TuiSettings
 from tau_coding.tui.state import ChatItem
 from tau_coding.tui.widgets import render_chat_item, render_session_sidebar
 
@@ -111,6 +111,16 @@ def test_chat_items_fold_long_unbroken_text_to_console_width() -> None:
     assert max(len(line) for line in output.splitlines()) <= 36
 
 
+def test_chat_items_use_configured_theme_colors() -> None:
+    panel = render_chat_item(
+        ChatItem(role="assistant", text="Done."),
+        theme=HIGH_CONTRAST_THEME,
+    )
+
+    assert panel.border_style == HIGH_CONTRAST_THEME.role_styles["assistant"].border
+    assert str(panel.style) == HIGH_CONTRAST_THEME.role_styles["assistant"].body
+
+
 def test_chat_items_render_fenced_code_without_markers() -> None:
     console = Console(record=True, width=60)
     item = ChatItem(
@@ -147,6 +157,15 @@ async def test_tui_app_mounts_sidebar_and_transcript() -> None:
         assert transcript is not None
         assert transcript.min_width == 1
         assert app.query_one("#prompt") is not None
+
+
+def test_tui_app_uses_configured_theme_css_variables() -> None:
+    app = TauTuiApp(FakeSession(), tui_settings=TuiSettings(theme="high-contrast"))
+
+    variables = app.get_theme_variable_defaults()
+
+    assert variables["tau-screen-background"] == "#000000"
+    assert variables["tau-prompt-border"] == "#00ff66"
 
 
 def test_tui_app_loads_restored_messages_into_display_state() -> None:

@@ -4,9 +4,11 @@ import pytest
 
 from tau_coding.paths import TauPaths
 from tau_coding.tui.config import (
+    HIGH_CONTRAST_THEME,
     TuiConfigError,
     TuiKeybindings,
     TuiSettings,
+    get_tui_theme,
     load_tui_settings,
     tui_settings_from_json,
     tui_settings_path,
@@ -35,7 +37,8 @@ def test_load_tui_settings_reads_keybindings(tmp_path: Path) -> None:
           "keybindings": {
             "command_palette": "ctrl+j",
             "accept_completion": "f2"
-          }
+          },
+          "theme": "high-contrast"
         }
         """,
         encoding="utf-8",
@@ -46,6 +49,8 @@ def test_load_tui_settings_reads_keybindings(tmp_path: Path) -> None:
     assert settings.keybindings.command_palette == "ctrl+j"
     assert settings.keybindings.accept_completion == "f2"
     assert settings.keybindings.cancel == "escape"
+    assert settings.theme == "high-contrast"
+    assert settings.resolved_theme == HIGH_CONTRAST_THEME
 
 
 def test_tui_settings_reject_unknown_fields() -> None:
@@ -65,10 +70,21 @@ def test_tui_keybindings_reject_duplicate_keys() -> None:
         )
 
 
+def test_tui_settings_reject_unknown_theme() -> None:
+    with pytest.raises(TuiConfigError, match="Unknown TUI theme"):
+        tui_settings_from_json({"theme": "solarized"})
+
+
 def test_tui_keybindings_serialize_to_json() -> None:
     settings = TuiSettings(
-        keybindings=TuiKeybindings(command_palette="ctrl+j", accept_completion="f2")
+        keybindings=TuiKeybindings(command_palette="ctrl+j", accept_completion="f2"),
+        theme="high-contrast",
     )
 
     assert settings.to_json()["keybindings"]["command_palette"] == "ctrl+j"
     assert settings.to_json()["keybindings"]["accept_completion"] == "f2"
+    assert settings.to_json()["theme"] == "high-contrast"
+
+
+def test_get_tui_theme_returns_builtin_theme() -> None:
+    assert get_tui_theme("high-contrast").prompt_border == "#00ff66"

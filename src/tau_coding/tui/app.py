@@ -21,7 +21,7 @@ from tau_coding.session import CodingSession, CodingSessionConfig, jsonl_session
 from tau_coding.session_manager import SessionManager
 from tau_coding.tui.adapter import TuiEventAdapter
 from tau_coding.tui.autocomplete import CompletionState, build_completion_state
-from tau_coding.tui.config import TuiKeybindings, TuiSettings, load_tui_settings
+from tau_coding.tui.config import TuiKeybindings, TuiSettings, TuiTheme, load_tui_settings
 from tau_coding.tui.state import TuiState
 from tau_coding.tui.widgets import SessionSidebar, TranscriptView, render_completion_suggestions
 
@@ -108,26 +108,26 @@ class TauTuiApp(App[None]):
     CSS = """
     Screen {
         layout: vertical;
-        background: #0f1117;
-        color: #e6edf3;
+        background: $tau-screen-background;
+        color: $tau-screen-text;
     }
 
     Header {
-        background: #161b22;
-        color: #f0f6fc;
+        background: $tau-chrome-background;
+        color: $tau-chrome-text;
         dock: top;
     }
 
     Footer {
-        background: #161b22;
-        color: #8b949e;
+        background: $tau-chrome-background;
+        color: $tau-muted-text;
     }
 
     #status {
         height: 1;
         padding: 0 1;
-        background: #0f1117;
-        color: #8b949e;
+        background: $tau-screen-background;
+        color: $tau-muted-text;
     }
 
     #workspace {
@@ -138,8 +138,8 @@ class TauTuiApp(App[None]):
         width: 32;
         min-width: 28;
         padding: 1;
-        background: #161b22;
-        border-right: solid #30363d;
+        background: $tau-sidebar-background;
+        border-right: solid $tau-border;
     }
 
     #main-pane {
@@ -149,15 +149,15 @@ class TauTuiApp(App[None]):
 
     #transcript {
         height: 1fr;
-        border: round #30363d;
-        background: #0d1117;
+        border: round $tau-border;
+        background: $tau-transcript-background;
         padding: 0 1;
     }
 
     #prompt {
-        background: #0d1117;
-        color: #f0f6fc;
-        border: round #238636;
+        background: $tau-prompt-background;
+        color: $tau-prompt-text;
+        border: round $tau-prompt-border;
         margin: 0 1 0 1;
     }
 
@@ -166,9 +166,9 @@ class TauTuiApp(App[None]):
         max-height: 6;
         margin: 0 1 1 1;
         padding: 0 1;
-        background: #161b22;
-        color: #e6edf3;
-        border: tall #30363d;
+        background: $tau-autocomplete-background;
+        color: $tau-screen-text;
+        border: tall $tau-border;
     }
     """
     BINDINGS: ClassVar[list[BindingEntry]] = []
@@ -179,8 +179,8 @@ class TauTuiApp(App[None]):
         *,
         tui_settings: TuiSettings | None = None,
     ) -> None:
-        super().__init__()
         self.tui_settings = tui_settings or TuiSettings()
+        super().__init__()
         self._bindings = BindingsMap(_app_bindings(self.tui_settings.keybindings))
         self.session = session
         self.state = TuiState()
@@ -188,6 +188,11 @@ class TauTuiApp(App[None]):
         self.adapter = TuiEventAdapter(self.state)
         self._prompt_worker: Worker[None] | None = None
         self._completion_state = CompletionState()
+
+    def get_theme_variable_defaults(self) -> dict[str, str]:
+        """Return Tau-specific CSS variables for the selected TUI theme."""
+        variables = super().get_theme_variable_defaults()
+        return {**variables, **_theme_css_variables(self.tui_settings.resolved_theme)}
 
     def compose(self) -> ComposeResult:
         """Compose the TUI widgets."""
@@ -323,17 +328,23 @@ class TauTuiApp(App[None]):
         self._refresh_completions()
 
     def _refresh(self) -> None:
+        theme = self.tui_settings.resolved_theme
         sidebar = self.query_one("#sidebar", SessionSidebar)
-        sidebar.update_from_session(self.session)
+        sidebar.update_from_session(self.session, theme=theme)
         transcript = self.query_one("#transcript", TranscriptView)
-        transcript.update_from_state(self.state)
+        transcript.update_from_state(self.state, theme=theme)
         status = self.query_one("#status", Static)
         status.update("Working…" if self.state.running else "Ready")
 
     def _refresh_completions(self) -> None:
         suggestions = self.query_one("#autocomplete", Static)
         suggestions.display = bool(self._completion_state.items)
-        suggestions.update(render_completion_suggestions(self._completion_state))
+        suggestions.update(
+            render_completion_suggestions(
+                self._completion_state,
+                theme=self.tui_settings.resolved_theme,
+            )
+        )
 
     def _build_completion_state(self, text: str) -> CompletionState:
         registry = _session_command_registry(self.session)
@@ -360,6 +371,23 @@ def _session_ids(session: CodingSession) -> tuple[str, ...]:
     if manager is None:
         return ()
     return tuple(record.id for record in manager.list_sessions())
+
+
+def _theme_css_variables(theme: TuiTheme) -> dict[str, str]:
+    return {
+        "tau-screen-background": theme.screen_background,
+        "tau-screen-text": theme.screen_text,
+        "tau-chrome-background": theme.chrome_background,
+        "tau-chrome-text": theme.chrome_text,
+        "tau-muted-text": theme.muted_text,
+        "tau-sidebar-background": theme.sidebar_background,
+        "tau-border": theme.border,
+        "tau-transcript-background": theme.transcript_background,
+        "tau-prompt-background": theme.prompt_background,
+        "tau-prompt-text": theme.prompt_text,
+        "tau-prompt-border": theme.prompt_border,
+        "tau-autocomplete-background": theme.autocomplete_background,
+    }
 
 
 def _app_bindings(keybindings: TuiKeybindings) -> list[Binding]:
