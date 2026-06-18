@@ -1,6 +1,6 @@
 """Minimal Textual app for Tau coding sessions."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol, cast
 
@@ -12,6 +12,10 @@ from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 from textual.worker import Worker
 
+from tau_agent.messages import AgentMessage
+from tau_agent.tools import AgentTool
+from tau_ai import ProviderErrorEvent, ProviderEvent
+from tau_ai.provider import CancellationToken
 from tau_coding.commands import CommandRegistry, create_default_command_registry
 from tau_coding.credentials import FileCredentialStore
 from tau_coding.provider_catalog import ProviderCatalogEntry, builtin_provider_entry
@@ -39,6 +43,33 @@ from tau_coding.tui.widgets import (
 type BindingEntry = Binding | tuple[str, str] | tuple[str, str, str]
 SIDEBAR_MIN_WIDTH = 96
 SIDEBAR_MIN_HEIGHT = 24
+
+
+class LoginRequiredProvider:
+    """Placeholder provider used so the TUI can open before login."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    async def aclose(self) -> None:
+        """Close provider resources."""
+
+    def stream_response(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[AgentMessage],
+        tools: list[AgentTool],
+        signal: CancellationToken | None = None,
+    ) -> AsyncIterator[ProviderEvent]:
+        """Surface a login-needed provider error."""
+        del model, system, messages, tools, signal
+
+        async def iterator() -> AsyncIterator[ProviderEvent]:
+            yield ProviderErrorEvent(message=self.message)
+
+        return iterator()
 
 
 class CompletionActionTarget(Protocol):
@@ -450,8 +481,10 @@ class TauTuiApp(App[None]):
         session: CodingSession,
         *,
         tui_settings: TuiSettings | None = None,
+        startup_message: str | None = None,
     ) -> None:
         self.tui_settings = tui_settings or TuiSettings()
+        self.startup_message = startup_message
         super().__init__()
         self._bindings = BindingsMap(_app_bindings(self.tui_settings.keybindings))
         self.session = session
@@ -495,6 +528,8 @@ class TauTuiApp(App[None]):
         self._update_responsive_layout(self.size.width, self.size.height)
         self._refresh()
         self._refresh_completions()
+        if self.startup_message:
+            self._notify(self.startup_message, severity="warning")
 
     def on_resize(self, event: Resize) -> None:
         """Update responsive chrome when the terminal changes size."""
@@ -845,7 +880,12 @@ async def run_tui_app(
         provider_name=provider_name,
         model=model,
     )
-    provider = create_model_provider(selection.provider)
+    startup_message: str | None = None
+    try:
+        provider = create_model_provider(selection.provider)
+    except RuntimeError as exc:
+        startup_message = f"{exc} Run /login {selection.provider.name} to save an API key."
+        provider = LoginRequiredProvider(startup_message)
     manager = session_manager or SessionManager()
     session: CodingSession | None = None
     try:
@@ -870,7 +910,11 @@ async def run_tui_app(
                 auto_compact_token_threshold=auto_compact_token_threshold,
             )
         )
-        app = TauTuiApp(session, tui_settings=load_tui_settings())
+        app = TauTuiApp(
+            session,
+            tui_settings=load_tui_settings(),
+            startup_message=startup_message,
+        )
         await app.run_async()
     finally:
         if session is not None:

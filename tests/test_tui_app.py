@@ -867,6 +867,57 @@ async def test_run_tui_app_creates_new_session_by_default(
 
 
 @pytest.mark.anyio
+async def test_run_tui_app_opens_when_provider_login_is_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[str] = []
+    record = CodingSessionRecord(
+        id="new-session",
+        path=tmp_path / "new-session.jsonl",
+        cwd=tmp_path,
+        model="fake-model",
+        title=None,
+        created_at=1.0,
+        updated_at=1.0,
+    )
+
+    class FakeManager:
+        def create_session(self, *, cwd: Path, model: str) -> CodingSessionRecord:
+            calls.append(f"create:{cwd}:{model}")
+            return record
+
+        def get_session(self, session_id: str) -> CodingSessionRecord | None:
+            return None
+
+    class FakeCodingSession:
+        @classmethod
+        async def load(cls, config: object) -> str:
+            calls.append(f"load:{type(config.provider).__name__}")  # type: ignore[attr-defined]
+            return "session"
+
+    class FakeApp:
+        def __init__(self, session: str, **kwargs: object) -> None:
+            assert session == "session"
+            assert "Run /login openai" in str(kwargs["startup_message"])
+
+        async def run_async(self) -> None:
+            calls.append("run")
+
+    monkeypatch.setattr(tui_app, "load_provider_settings", lambda: ProviderSettings())
+    monkeypatch.setattr(
+        tui_app,
+        "create_model_provider",
+        lambda provider: (_ for _ in ()).throw(RuntimeError("Missing provider API key.")),
+    )
+    monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
+    monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
+
+    await tui_app.run_tui_app(cwd=tmp_path, model=None, session_manager=FakeManager())
+
+    assert calls == [f"create:{tmp_path}:gpt-4.1-mini", "load:LoginRequiredProvider", "run"]
+
+
+@pytest.mark.anyio
 async def test_run_tui_app_resumes_explicit_session(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

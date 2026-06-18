@@ -289,10 +289,6 @@ class CodingSession:
             raise ProviderConfigError("Provider settings are not available for this session")
 
         provider_config = self._provider_settings.get_provider(provider_name)
-        if provider_config.name == self._provider_name:
-            self.set_model(provider_config.default_model)
-            return
-
         try:
             provider = create_model_provider(provider_config)
         except RuntimeError as exc:

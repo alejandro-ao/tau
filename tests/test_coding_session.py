@@ -531,9 +531,15 @@ async def test_session_switches_configured_provider(
     assert session.available_models == ("qwen", "llama")
     assert len(created_providers) == 1
 
+    result = session.handle_command("/provider local")
+
+    assert result.message is not None
+    assert "Current provider: local" in result.message
+    assert len(created_providers) == 2
+
     await session.aclose()
 
-    assert created_providers[0].closed is True
+    assert [provider.closed for provider in created_providers] == [True, True]
 
 
 @pytest.mark.anyio
