@@ -13,8 +13,10 @@ from tau_coding.provider_config import (
     anthropic_config_from_provider,
     load_provider_settings,
     openai_compatible_config_from_provider,
+    provider_default_thinking_level,
     provider_has_usable_credentials,
     provider_settings_from_json,
+    provider_thinking_levels,
     resolve_provider_selection,
     save_provider_settings,
     upsert_openai_compatible_provider,
@@ -36,6 +38,23 @@ def test_load_provider_settings_missing_file_uses_openai_default(tmp_path: Path)
     assert settings.get_provider("anthropic").api_key_env == "ANTHROPIC_API_KEY"
     assert settings.get_provider("openrouter").api_key_env == "OPENROUTER_API_KEY"
     assert settings.get_provider("huggingface").api_key_env == "HF_TOKEN"
+
+
+def test_builtin_openai_declares_model_scoped_thinking_capabilities() -> None:
+    settings = ProviderSettings()
+    openai = settings.get_provider("openai")
+    openrouter = settings.get_provider("openrouter")
+
+    assert provider_thinking_levels(openai, model="gpt-5.5") == (
+        "off",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    )
+    assert provider_default_thinking_level(openai, model="gpt-5.5") == "medium"
+    assert provider_thinking_levels(openai, model="gpt-4.1") == ()
+    assert provider_thinking_levels(openrouter, model="openai/gpt-5.5") == ()
 
 
 def test_save_and_load_provider_settings_round_trip(tmp_path: Path) -> None:
@@ -204,6 +223,59 @@ def test_openai_compatible_config_from_provider_uses_configured_headers(
     assert config.headers == {"X-HF-Bill-To": "my-org"}
 
 
+def test_openai_compatible_config_from_provider_sets_reasoning_effort(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_API_KEY", "test-key")
+    provider = OpenAICompatibleProviderConfig(
+        name="local",
+        base_url="http://localhost:11434/v1/",
+        api_key_env="LOCAL_API_KEY",
+        models=("reasoner", "plain"),
+        default_model="reasoner",
+        thinking_levels=("off", "low", "high"),
+        thinking_models=("reasoner",),
+        thinking_default="low",
+        thinking_parameter="reasoning_effort",
+    )
+
+    reasoner = openai_compatible_config_from_provider(
+        provider,
+        model="reasoner",
+        thinking_level="off",
+    )
+    plain = openai_compatible_config_from_provider(
+        provider,
+        model="plain",
+        thinking_level="high",
+    )
+
+    assert reasoner.reasoning_effort == "none"
+    assert plain.reasoning_effort is None
+
+
+def test_openai_compatible_config_from_provider_rejects_unsupported_thinking_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_API_KEY", "test-key")
+    provider = OpenAICompatibleProviderConfig(
+        name="local",
+        base_url="http://localhost:11434/v1/",
+        api_key_env="LOCAL_API_KEY",
+        models=("reasoner",),
+        default_model="reasoner",
+        thinking_levels=("low", "high"),
+        thinking_parameter="reasoning_effort",
+    )
+
+    with pytest.raises(ProviderConfigError, match="not available"):
+        openai_compatible_config_from_provider(
+            provider,
+            model="reasoner",
+            thinking_level="medium",
+        )
+
+
 def test_openai_compatible_config_from_provider_uses_stored_credential(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -318,6 +390,36 @@ def test_provider_settings_from_json_loads_headers() -> None:
     assert provider.headers == {"X-HF-Bill-To": "my-org"}
 
 
+def test_provider_settings_from_json_loads_custom_thinking_capabilities() -> None:
+    settings = provider_settings_from_json(
+        {
+            "default_provider": "local",
+            "providers": [
+                {
+                    "type": "openai-compatible",
+                    "name": "local",
+                    "base_url": "http://localhost:11434/v1",
+                    "api_key_env": "LOCAL_API_KEY",
+                    "models": ["reasoner", "plain"],
+                    "default_model": "reasoner",
+                    "thinking_levels": ["off", "low", "high"],
+                    "thinking_models": ["reasoner"],
+                    "thinking_default": "low",
+                    "thinking_parameter": "reasoning_effort",
+                }
+            ],
+        }
+    )
+
+    provider = settings.get_provider("local")
+
+    assert isinstance(provider, OpenAICompatibleProviderConfig)
+    assert provider_thinking_levels(provider, model="reasoner") == ("off", "low", "high")
+    assert provider_thinking_levels(provider, model="plain") == ()
+    assert provider_default_thinking_level(provider, model="reasoner") == "low"
+    assert provider.to_json()["thinking_parameter"] == "reasoning_effort"
+
+
 def test_provider_settings_from_json_loads_openai_codex_provider() -> None:
     settings = provider_settings_from_json(
         {
@@ -342,6 +444,26 @@ def test_provider_settings_from_json_loads_openai_codex_provider() -> None:
     assert isinstance(provider, OpenAICodexProviderConfig)
     assert provider.default_model == "gpt-5.5"
     assert provider.headers == {"X-Test": "enabled"}
+
+
+def test_provider_settings_from_json_rejects_unimplemented_thinking_provider() -> None:
+    with pytest.raises(ProviderConfigError, match="Anthropic thinking controls"):
+        provider_settings_from_json(
+            {
+                "default_provider": "anthropic",
+                "providers": [
+                    {
+                        "type": "anthropic",
+                        "name": "anthropic",
+                        "base_url": "https://api.anthropic.com/v1",
+                        "api_key_env": "ANTHROPIC_API_KEY",
+                        "models": ["claude-sonnet-4-6"],
+                        "default_model": "claude-sonnet-4-6",
+                        "thinking_levels": ["low", "high"],
+                    }
+                ],
+            }
+        )
 
 
 def test_load_provider_settings_merges_builtin_model_catalog(tmp_path: Path) -> None:

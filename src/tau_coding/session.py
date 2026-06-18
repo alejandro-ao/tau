@@ -42,7 +42,9 @@ from tau_coding.provider_config import (
     ProviderConfigError,
     ProviderSettings,
     load_provider_settings,
+    provider_default_thinking_level,
     provider_has_usable_credentials,
+    provider_thinking_levels,
 )
 from tau_coding.provider_runtime import ClosableModelProvider, create_model_provider
 from tau_coding.resources import (
@@ -105,6 +107,7 @@ class CodingSessionConfig:
     command_registry: CommandRegistry | None = None
     provider_name: str = "openai"
     provider_settings: ProviderSettings | None = None
+    runtime_provider_config: ProviderConfig | None = None
     auto_compact_token_threshold: int | None = None
     thinking_level: ThinkingLevel = DEFAULT_THINKING_LEVEL
 
@@ -141,6 +144,7 @@ class CodingSession:
         self._command_registry = command_registry or create_default_command_registry()
         self._provider_name = config.provider_name
         self._provider_settings = config.provider_settings
+        self._runtime_provider_config = config.runtime_provider_config
         self._resource_paths = resource_paths_with_cwd(config.resource_paths, config.cwd)
         self._auto_compact_token_threshold = config.auto_compact_token_threshold
         self._thinking_level = _state_thinking_level(state, config.thinking_level)
@@ -199,7 +203,7 @@ class CodingSession:
             ),
             messages=state.messages,
         )
-        return cls(
+        session = cls(
             config,
             state=state,
             harness=harness,
@@ -210,6 +214,9 @@ class CodingSession:
             resource_diagnostics=resources.diagnostics,
             command_registry=config.command_registry,
         )
+        session._sync_thinking_level_to_active_model()
+        session._refresh_runtime_provider()
+        return session
 
     @property
     def cwd(self) -> Path:
@@ -279,8 +286,13 @@ class CodingSession:
 
     @property
     def available_thinking_levels(self) -> tuple[ThinkingLevel, ...]:
-        """Return thinking modes supported by Tau's coding session UI."""
-        return THINKING_LEVELS
+        """Return thinking modes supported by the active provider/model."""
+        if self._provider_settings is None:
+            return THINKING_LEVELS
+        provider = self._active_provider_config()
+        if provider is None:
+            return ()
+        return provider_thinking_levels(provider, model=self.model)
 
     @property
     def storage(self) -> SessionStorage:
@@ -353,6 +365,8 @@ class CodingSession:
     def set_model(self, model: str) -> None:
         """Switch the active model for future turns in this process."""
         self._harness.config.model = model
+        self._sync_thinking_level_to_active_model()
+        self._refresh_runtime_provider()
         if self._config.session_id is not None and self._config.session_manager is not None:
             self._config.session_manager.touch_session(self._config.session_id, model=model)
 
@@ -362,23 +376,54 @@ class CodingSession:
             raise ProviderConfigError("Provider settings are not available for this session")
 
         provider_config = self._provider_settings.get_provider(provider_name)
+        model = provider_config.default_model
+        thinking_level = _coerced_thinking_level(
+            provider_config,
+            model=model,
+            current=self._thinking_level,
+        )
         try:
             provider = create_model_provider(
                 provider_config,
                 credential_store=self._credential_store,
+                model=model,
+                thinking_level=thinking_level,
             )
         except RuntimeError as exc:
             raise ProviderConfigError(str(exc)) from exc
         self._owned_providers.append(provider)
         self._harness.config.provider = provider
         self._provider_name = provider_config.name
-        self.set_model(provider_config.default_model)
+        self._runtime_provider_config = provider_config
+        self._harness.config.model = model
+        self._thinking_level = thinking_level
+        if self._config.session_id is not None and self._config.session_manager is not None:
+            self._config.session_manager.touch_session(self._config.session_id, model=model)
 
     async def set_thinking_level(self, level: str) -> str:
         """Persist and activate a thinking mode for future turns."""
         normalized = normalize_thinking_level(level)
+        available = self.available_thinking_levels
+        if not available:
+            raise ValueError(
+                f"Thinking controls are unavailable for {self._provider_name}:{self.model}"
+            )
+        if normalized not in available:
+            modes = ", ".join(available)
+            raise ValueError(
+                f"Thinking mode {normalized} is not available for "
+                f"{self._provider_name}:{self.model}. Available modes: {modes}"
+            )
         if normalized == self._thinking_level:
             return f"Thinking mode: {normalized}"
+
+        previous = self._thinking_level
+        self._thinking_level = normalized
+        try:
+            self._refresh_runtime_provider()
+        except ProviderConfigError:
+            self._thinking_level = previous
+            raise
 
         entry = ThinkingLevelChangeEntry(
             parent_id=self._last_parent_id,
@@ -391,7 +436,6 @@ class CodingSession:
 
         entries = await self._config.storage.read_all()
         self._state = SessionState.from_entries(entries, leaf_id=entry.id)
-        self._thinking_level = normalized
         if self._config.session_id is not None and self._config.session_manager is not None:
             self._config.session_manager.touch_session(self._config.session_id, model=self.model)
         return f"Thinking mode: {normalized}"
@@ -405,6 +449,41 @@ class CodingSession:
             )
         )
 
+    def _active_provider_config(self) -> ProviderConfig | None:
+        if self._provider_settings is None:
+            return None
+        try:
+            return self._provider_settings.get_provider(self._provider_name)
+        except ProviderConfigError:
+            return None
+
+    def _sync_thinking_level_to_active_model(self) -> None:
+        provider = self._active_provider_config()
+        if provider is None:
+            return
+        self._thinking_level = _coerced_thinking_level(
+            provider,
+            model=self.model,
+            current=self._thinking_level,
+        )
+
+    def _refresh_runtime_provider(self) -> None:
+        if self._runtime_provider_config is None:
+            return
+        provider_config = self._active_provider_config() or self._runtime_provider_config
+        try:
+            provider = create_model_provider(
+                provider_config,
+                credential_store=self._credential_store,
+                model=self.model,
+                thinking_level=self._thinking_level,
+            )
+        except RuntimeError as exc:
+            raise ProviderConfigError(str(exc)) from exc
+        self._owned_providers.append(provider)
+        self._harness.config.provider = provider
+        self._runtime_provider_config = provider_config
+
     def reload(self) -> None:
         """Reload Tau-owned resources and provider settings for future turns."""
         resources = _load_session_resources(self._resource_paths, self._config.context_files)
@@ -414,6 +493,8 @@ class CodingSession:
         self._resource_diagnostics = resources.diagnostics
         if self._provider_settings is not None:
             self._provider_settings = load_provider_settings()
+            self._sync_thinking_level_to_active_model()
+            self._refresh_runtime_provider()
         if self._config.system is None:
             self._harness.config.system = build_system_prompt(
                 BuildSystemPromptOptions(
@@ -451,6 +532,7 @@ class CodingSession:
                 command_registry=self._command_registry,
                 provider_name=self._provider_name,
                 provider_settings=self._provider_settings,
+                runtime_provider_config=self._runtime_provider_config,
                 auto_compact_token_threshold=self._auto_compact_token_threshold,
                 thinking_level=self._thinking_level,
             )
@@ -466,6 +548,7 @@ class CodingSession:
         self._command_registry = replacement._command_registry
         self._provider_name = replacement._provider_name
         self._provider_settings = replacement._provider_settings
+        self._runtime_provider_config = replacement._runtime_provider_config
         self._resource_paths = replacement._resource_paths
         self._auto_compact_token_threshold = replacement._auto_compact_token_threshold
         self._thinking_level = replacement._thinking_level
@@ -481,10 +564,15 @@ class CodingSession:
         replacement = await type(self).load(
             replace(
                 self._config,
+                provider=self._harness.config.provider,
                 model=record.model or self.model,
                 cwd=record.cwd,
                 storage=jsonl_session_storage(record.path),
                 session_id=record.id,
+                provider_name=self._provider_name,
+                provider_settings=self._provider_settings,
+                runtime_provider_config=self._runtime_provider_config,
+                thinking_level=self._thinking_level,
             )
         )
         self._config = replacement._config
@@ -498,6 +586,7 @@ class CodingSession:
         self._command_registry = replacement._command_registry
         self._provider_name = replacement._provider_name
         self._provider_settings = replacement._provider_settings
+        self._runtime_provider_config = replacement._runtime_provider_config
         self._resource_paths = replacement._resource_paths
         self._auto_compact_token_threshold = replacement._auto_compact_token_threshold
         self._thinking_level = replacement._thinking_level
@@ -685,6 +774,19 @@ def _state_thinking_level(
     if thinking_level is None:
         return default
     return normalize_thinking_level(thinking_level)
+
+
+def _coerced_thinking_level(
+    provider: ProviderConfig,
+    *,
+    model: str,
+    current: ThinkingLevel,
+) -> ThinkingLevel:
+    levels = provider_thinking_levels(provider, model=model)
+    if not levels or current in levels:
+        return current
+    default = provider_default_thinking_level(provider, model=model)
+    return default or levels[0]
 
 
 def _load_session_resources(

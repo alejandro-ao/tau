@@ -269,6 +269,13 @@ Useful TUI commands:
 In the TUI, `Shift-Tab` cycles the active thinking mode by default. Remap it in
 `~/.tau/tui.json` with the `thinking_cycle` keybinding.
 
+Thinking controls are model-aware. Tau enables them only when the active
+provider configuration declares supported levels for the active model. Custom
+OpenAI-compatible providers can opt in by adding `thinking_levels`,
+`thinking_default`, and `thinking_parameter: "reasoning_effort"` to their
+provider entry. Add `thinking_models` when only some configured models support
+those levels.
+
 ## Context Management
 
 `/status` shows a rough context-size estimate:

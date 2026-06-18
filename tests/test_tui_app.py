@@ -1640,7 +1640,11 @@ async def test_run_tui_app_creates_new_session_by_default(
         ),
     )
     monkeypatch.setattr(tui_app, "load_provider_settings", lambda: settings)
-    monkeypatch.setattr(tui_app, "create_model_provider", lambda provider: FakeProvider())
+    monkeypatch.setattr(
+        tui_app,
+        "create_model_provider",
+        lambda provider, **kwargs: FakeProvider(),
+    )
     monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
     monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
 
@@ -1701,7 +1705,9 @@ async def test_run_tui_app_opens_when_provider_login_is_missing(
     monkeypatch.setattr(
         tui_app,
         "create_model_provider",
-        lambda provider: (_ for _ in ()).throw(RuntimeError("Missing provider API key.")),
+        lambda provider, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("Missing provider API key.")
+        ),
     )
     monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
     monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
@@ -1754,7 +1760,11 @@ async def test_run_tui_app_resumes_explicit_session(
 
     settings = ProviderSettings()
     monkeypatch.setattr(tui_app, "load_provider_settings", lambda: settings)
-    monkeypatch.setattr(tui_app, "create_model_provider", lambda provider: FakeProvider())
+    monkeypatch.setattr(
+        tui_app,
+        "create_model_provider",
+        lambda provider, **kwargs: FakeProvider(),
+    )
     monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
     monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
 

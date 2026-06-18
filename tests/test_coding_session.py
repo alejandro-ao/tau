@@ -237,6 +237,93 @@ async def test_session_cycles_thinking_level(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_session_uses_active_model_thinking_capabilities(tmp_path: Path) -> None:
+    provider_config = OpenAICompatibleProviderConfig(
+        name="openai",
+        models=("reasoner", "plain"),
+        default_model="reasoner",
+        thinking_levels=("off", "low", "high"),
+        thinking_models=("reasoner",),
+        thinking_default="low",
+        thinking_parameter="reasoning_effort",
+    )
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="reasoner",
+            system="You are Tau.",
+            storage=JsonlSessionStorage(tmp_path / "session.jsonl"),
+            cwd=tmp_path,
+            provider_name="openai",
+            provider_settings=ProviderSettings(providers=(provider_config,)),
+        )
+    )
+
+    assert session.available_thinking_levels == ("off", "low", "high")
+    assert session.thinking_level == "low"
+    assert await session.set_thinking_level("high") == "Thinking mode: high"
+
+    with pytest.raises(ValueError, match="not available"):
+        await session.set_thinking_level("medium")
+
+    session.set_model("plain")
+
+    assert session.available_thinking_levels == ()
+    with pytest.raises(ValueError, match="unavailable"):
+        await session.cycle_thinking_level()
+
+
+@pytest.mark.anyio
+async def test_session_refreshes_runtime_provider_for_thinking_level(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    created: list[tuple[str | None, str | None]] = []
+
+    def create_provider(
+        provider_config: object,
+        *,
+        credential_store: FileCredentialStore | None = None,
+        model: str | None = None,
+        thinking_level: str | None = None,
+    ) -> SwitchableFakeProvider:
+        del provider_config, credential_store
+        created.append((model, thinking_level))
+        return SwitchableFakeProvider(object())
+
+    monkeypatch.setattr(coding_session_module, "create_model_provider", create_provider)
+    provider_config = OpenAICompatibleProviderConfig(
+        name="openai",
+        models=("reasoner",),
+        default_model="reasoner",
+        thinking_levels=("low", "high"),
+        thinking_default="low",
+        thinking_parameter="reasoning_effort",
+    )
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="reasoner",
+            system="You are Tau.",
+            storage=JsonlSessionStorage(tmp_path / "runtime-session.jsonl"),
+            cwd=tmp_path,
+            provider_name="openai",
+            provider_settings=ProviderSettings(providers=(provider_config,)),
+            runtime_provider_config=provider_config,
+            thinking_level="high",
+        )
+    )
+
+    assert created == [("reasoner", "high")]
+
+    await session.set_thinking_level("low")
+
+    assert created[-1] == ("reasoner", "low")
+
+    await session.aclose()
+
+
+@pytest.mark.anyio
 async def test_load_restores_existing_transcript(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(tmp_path / "session.jsonl")
     user_entry = MessageEntry(id="user", message=UserMessage(content="Earlier"))
@@ -687,8 +774,10 @@ async def test_session_switches_configured_provider(
         provider_config: object,
         *,
         credential_store: FileCredentialStore | None = None,
+        model: str | None = None,
+        thinking_level: str | None = None,
     ) -> SwitchableFakeProvider:
-        del credential_store
+        del credential_store, model, thinking_level
         provider = SwitchableFakeProvider(provider_config)
         created_providers.append(provider)
         return provider
@@ -755,8 +844,10 @@ async def test_session_switch_uses_session_credential_store(
         provider_config: object,
         *,
         credential_store: FileCredentialStore | None = None,
+        model: str | None = None,
+        thinking_level: str | None = None,
     ) -> SwitchableFakeProvider:
-        del provider_config
+        del provider_config, model, thinking_level
         assert credential_store is not None
         credential_store_paths.append(credential_store.path)
         return SwitchableFakeProvider(object())

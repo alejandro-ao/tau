@@ -17,9 +17,10 @@ xhigh
 ```
 
 The default is `medium`, matching Pi's default reasoning-depth preference. Tau
-does not yet pass provider-specific reasoning options through `tau_ai`; this
-phase models and persists the coding-session preference so providers can consume
-it later without changing the UI or session format.
+validates the visible controls against provider/model capabilities and passes
+OpenAI-compatible `reasoning_effort` when a configured provider declares support.
+Unsupported models show thinking controls as unavailable instead of presenting a
+mode that Tau cannot safely send.
 
 ## Session Persistence
 
@@ -62,14 +63,37 @@ configurable in `~/.tau/tui.json`:
 ```
 
 The sidebar and compact session line now read `session.thinking_level` directly,
-with a fallback for simple custom session adapters.
+with a fallback for simple custom session adapters. When the active provider or
+model has no thinking capability metadata, the TUI shows the control as
+unavailable.
+
+## Provider Capabilities
+
+Provider settings may declare thinking support with:
+
+```json
+{
+  "thinking_levels": ["off", "low", "medium", "high"],
+  "thinking_models": ["gpt-5.5"],
+  "thinking_default": "medium",
+  "thinking_parameter": "reasoning_effort"
+}
+```
+
+`thinking_models` is optional. If it is omitted, the declared levels apply to
+all models for that provider. Tau's built-in direct OpenAI provider declares
+known GPT-5 reasoning models and sends `reasoning_effort` through the
+OpenAI-compatible chat-completions adapter. OpenRouter and Hugging Face remain
+disabled unless an OpenAI-compatible provider config explicitly opts in.
+Anthropic and Codex-subscription thinking controls are rejected until their
+adapters implement a provider-specific mapping.
 
 ## Boundary
 
-Thinking controls remain outside `tau_agent` provider execution. This phase
-does not add provider-specific reasoning payloads, model capability clamping, or
-thinking trace rendering. Those can be added later in `tau_ai` and provider
-runtime code without changing the session/TUI contract introduced here.
+Thinking controls remain outside `tau_agent` provider execution. This phase adds
+OpenAI-compatible reasoning-effort payloads and model capability clamping in
+`tau_ai`/`tau_coding`, but it does not render thinking traces or expose hidden
+provider reasoning content in the transcript.
 
 ## Tests
 

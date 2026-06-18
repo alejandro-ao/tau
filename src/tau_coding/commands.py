@@ -472,17 +472,44 @@ def _model_command(context: CommandContext) -> CommandResult:
 
 def _thinking_command(context: CommandContext) -> CommandResult:
     session = context.session
+    available = tuple(session.available_thinking_levels)
     if not context.args:
+        if not available:
+            return CommandResult(
+                handled=True,
+                message=(
+                    "Thinking controls: unavailable\n"
+                    f"Current model: {session.provider_name}:{session.model}"
+                ),
+            )
         lines = [
             f"Thinking mode: {session.thinking_level}",
-            f"Available modes: {', '.join(session.available_thinking_levels)}",
+            f"Available modes: {', '.join(available)}",
         ]
         return CommandResult(handled=True, message="\n".join(lines))
 
+    if not available:
+        return CommandResult(
+            handled=True,
+            message=(
+                "Thinking controls are unavailable for "
+                f"{session.provider_name}:{session.model}"
+            ),
+        )
     try:
         level = normalize_thinking_level(context.args)
     except ValueError as exc:
         return CommandResult(handled=True, message=str(exc))
+    if level not in available:
+        modes = ", ".join(available)
+        return CommandResult(
+            handled=True,
+            message=(
+                f"Thinking mode {level} is not available for "
+                f"{session.provider_name}:{session.model}\n"
+                f"Available modes: {modes}"
+            ),
+        )
     return CommandResult(handled=True, thinking_level=level)
 
 

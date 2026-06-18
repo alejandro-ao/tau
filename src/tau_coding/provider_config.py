@@ -18,6 +18,14 @@ from tau_ai import (
 from tau_ai.env import DEFAULT_OPENAI_COMPATIBLE_BASE_URL
 from tau_coding.paths import TauPaths
 from tau_coding.provider_catalog import BUILTIN_PROVIDER_CATALOG, ProviderKind
+from tau_coding.thinking import (
+    DEFAULT_THINKING_LEVEL,
+    ThinkingLevel,
+    ThinkingParameter,
+    normalize_thinking_level,
+    normalize_thinking_levels,
+    reasoning_effort_for_level,
+)
 
 DEFAULT_PROVIDER_NAME = "openai"
 DEFAULT_MODEL = "gpt-5.5"
@@ -47,12 +55,22 @@ class OpenAICompatibleProviderConfig:
     timeout_seconds: float = DEFAULT_OPENAI_COMPATIBLE_TIMEOUT_SECONDS
     max_retries: int = DEFAULT_OPENAI_COMPATIBLE_MAX_RETRIES
     max_retry_delay_seconds: float = DEFAULT_OPENAI_COMPATIBLE_MAX_RETRY_DELAY_SECONDS
+    thinking_levels: tuple[ThinkingLevel, ...] | None = None
+    thinking_models: tuple[str, ...] = ()
+    thinking_default: ThinkingLevel | None = None
+    thinking_parameter: ThinkingParameter | None = None
 
     def __post_init__(self) -> None:
         _validate_provider_numbers(
             timeout_seconds=self.timeout_seconds,
             max_retries=self.max_retries,
             max_retry_delay_seconds=self.max_retry_delay_seconds,
+        )
+        _validate_thinking_config(
+            thinking_levels=self.thinking_levels,
+            thinking_models=self.thinking_models,
+            thinking_default=self.thinking_default,
+            thinking_parameter=self.thinking_parameter,
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -69,6 +87,12 @@ class OpenAICompatibleProviderConfig:
             "timeout_seconds": self.timeout_seconds,
             "max_retries": self.max_retries,
             "max_retry_delay_seconds": self.max_retry_delay_seconds,
+            "thinking_levels": (
+                list(self.thinking_levels) if self.thinking_levels is not None else None
+            ),
+            "thinking_models": list(self.thinking_models),
+            "thinking_default": self.thinking_default,
+            "thinking_parameter": self.thinking_parameter,
         }
 
 
@@ -86,12 +110,26 @@ class AnthropicProviderConfig:
     timeout_seconds: float = DEFAULT_OPENAI_COMPATIBLE_TIMEOUT_SECONDS
     max_retries: int = DEFAULT_OPENAI_COMPATIBLE_MAX_RETRIES
     max_retry_delay_seconds: float = DEFAULT_OPENAI_COMPATIBLE_MAX_RETRY_DELAY_SECONDS
+    thinking_levels: tuple[ThinkingLevel, ...] | None = None
+    thinking_models: tuple[str, ...] = ()
+    thinking_default: ThinkingLevel | None = None
+    thinking_parameter: ThinkingParameter | None = None
 
     def __post_init__(self) -> None:
         _validate_provider_numbers(
             timeout_seconds=self.timeout_seconds,
             max_retries=self.max_retries,
             max_retry_delay_seconds=self.max_retry_delay_seconds,
+        )
+        _validate_thinking_config(
+            thinking_levels=self.thinking_levels,
+            thinking_models=self.thinking_models,
+            thinking_default=self.thinking_default,
+            thinking_parameter=self.thinking_parameter,
+        )
+        _reject_unimplemented_thinking_config(
+            provider_type="Anthropic",
+            thinking_levels=self.thinking_levels,
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -108,6 +146,12 @@ class AnthropicProviderConfig:
             "timeout_seconds": self.timeout_seconds,
             "max_retries": self.max_retries,
             "max_retry_delay_seconds": self.max_retry_delay_seconds,
+            "thinking_levels": (
+                list(self.thinking_levels) if self.thinking_levels is not None else None
+            ),
+            "thinking_models": list(self.thinking_models),
+            "thinking_default": self.thinking_default,
+            "thinking_parameter": self.thinking_parameter,
         }
 
 
@@ -132,12 +176,26 @@ class OpenAICodexProviderConfig:
     timeout_seconds: float = DEFAULT_OPENAI_COMPATIBLE_TIMEOUT_SECONDS
     max_retries: int = DEFAULT_OPENAI_COMPATIBLE_MAX_RETRIES
     max_retry_delay_seconds: float = DEFAULT_OPENAI_COMPATIBLE_MAX_RETRY_DELAY_SECONDS
+    thinking_levels: tuple[ThinkingLevel, ...] | None = None
+    thinking_models: tuple[str, ...] = ()
+    thinking_default: ThinkingLevel | None = None
+    thinking_parameter: ThinkingParameter | None = None
 
     def __post_init__(self) -> None:
         _validate_provider_numbers(
             timeout_seconds=self.timeout_seconds,
             max_retries=self.max_retries,
             max_retry_delay_seconds=self.max_retry_delay_seconds,
+        )
+        _validate_thinking_config(
+            thinking_levels=self.thinking_levels,
+            thinking_models=self.thinking_models,
+            thinking_default=self.thinking_default,
+            thinking_parameter=self.thinking_parameter,
+        )
+        _reject_unimplemented_thinking_config(
+            provider_type="OpenAI Codex subscription",
+            thinking_levels=self.thinking_levels,
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -154,6 +212,12 @@ class OpenAICodexProviderConfig:
             "timeout_seconds": self.timeout_seconds,
             "max_retries": self.max_retries,
             "max_retry_delay_seconds": self.max_retry_delay_seconds,
+            "thinking_levels": (
+                list(self.thinking_levels) if self.thinking_levels is not None else None
+            ),
+            "thinking_models": list(self.thinking_models),
+            "thinking_default": self.thinking_default,
+            "thinking_parameter": self.thinking_parameter,
         }
 
 
@@ -215,6 +279,10 @@ def provider_config_from_catalog_entry(name: str) -> ProviderConfig:
                 credential_name=entry.credential_name,
                 models=entry.models,
                 default_model=entry.default_model,
+                thinking_levels=entry.thinking_levels,
+                thinking_models=entry.thinking_models,
+                thinking_default=entry.thinking_default,
+                thinking_parameter=entry.thinking_parameter,
             )
         if entry.kind == "openai-codex":
             return OpenAICodexProviderConfig(
@@ -224,6 +292,10 @@ def provider_config_from_catalog_entry(name: str) -> ProviderConfig:
                 credential_name=entry.credential_name,
                 models=entry.models,
                 default_model=entry.default_model,
+                thinking_levels=entry.thinking_levels,
+                thinking_models=entry.thinking_models,
+                thinking_default=entry.thinking_default,
+                thinking_parameter=entry.thinking_parameter,
             )
         return OpenAICompatibleProviderConfig(
             name=entry.name,
@@ -232,6 +304,10 @@ def provider_config_from_catalog_entry(name: str) -> ProviderConfig:
             credential_name=entry.credential_name,
             models=entry.models,
             default_model=entry.default_model,
+            thinking_levels=entry.thinking_levels,
+            thinking_models=entry.thinking_models,
+            thinking_default=entry.thinking_default,
+            thinking_parameter=entry.thinking_parameter,
         )
     raise ProviderConfigError(f"Unknown built-in provider: {name}")
 
@@ -323,7 +399,36 @@ def _merge_provider_config(existing: ProviderConfig, incoming: ProviderConfig) -
         existing.default_model if existing.default_model in models else incoming.default_model
     )
     headers = {**existing.headers, **incoming.headers}
-    return replace(incoming, models=models, default_model=default_model, headers=headers)
+    thinking_levels = (
+        existing.thinking_levels
+        if existing.thinking_levels is not None
+        else incoming.thinking_levels
+    )
+    thinking_models = (
+        existing.thinking_models
+        if existing.thinking_levels is not None
+        else incoming.thinking_models
+    )
+    thinking_default = (
+        existing.thinking_default
+        if existing.thinking_levels is not None
+        else incoming.thinking_default
+    )
+    thinking_parameter = (
+        existing.thinking_parameter
+        if existing.thinking_levels is not None
+        else incoming.thinking_parameter
+    )
+    return replace(
+        incoming,
+        models=models,
+        default_model=default_model,
+        headers=headers,
+        thinking_levels=thinking_levels,
+        thinking_models=thinking_models,
+        thinking_default=thinking_default,
+        thinking_parameter=thinking_parameter,
+    )
 
 
 def _unique_strings(values: tuple[str, ...]) -> tuple[str, ...]:
@@ -360,16 +465,53 @@ def resolve_provider_selection(
     return ProviderSelection(provider=provider, model=selected_model)
 
 
+def provider_thinking_levels(
+    provider: ProviderConfig,
+    *,
+    model: str | None = None,
+) -> tuple[ThinkingLevel, ...]:
+    """Return thinking levels supported by a provider/model pair."""
+    if provider.thinking_levels is None:
+        return ()
+    selected_model = model or provider.default_model
+    if provider.thinking_models and selected_model not in provider.thinking_models:
+        return ()
+    return provider.thinking_levels
+
+
+def provider_default_thinking_level(
+    provider: ProviderConfig,
+    *,
+    model: str | None = None,
+) -> ThinkingLevel | None:
+    """Return the preferred thinking level for a provider/model pair."""
+    levels = provider_thinking_levels(provider, model=model)
+    if not levels:
+        return None
+    if provider.thinking_default in levels:
+        return provider.thinking_default
+    if DEFAULT_THINKING_LEVEL in levels:
+        return DEFAULT_THINKING_LEVEL
+    return levels[0]
+
+
 def openai_compatible_config_from_provider(
     provider: OpenAICompatibleProviderConfig,
     *,
     credential_reader: CredentialReader | None = None,
+    model: str | None = None,
+    thinking_level: ThinkingLevel | None = None,
 ) -> OpenAICompatibleConfig:
     """Build OpenAI-compatible runtime config from durable settings."""
     api_key = _api_key_from_provider(provider, credential_reader=credential_reader)
     base_url = provider.base_url
     if provider.name == DEFAULT_PROVIDER_NAME and provider.api_key_env == "OPENAI_API_KEY":
         base_url = environ.get("OPENAI_BASE_URL", provider.base_url)
+    reasoning_effort = _reasoning_effort_from_provider(
+        provider,
+        model=model,
+        thinking_level=thinking_level,
+    )
     return OpenAICompatibleConfig(
         api_key=api_key,
         base_url=base_url.rstrip("/"),
@@ -377,6 +519,7 @@ def openai_compatible_config_from_provider(
         timeout_seconds=provider.timeout_seconds,
         max_retries=provider.max_retries,
         max_retry_delay_seconds=provider.max_retry_delay_seconds,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -422,6 +565,30 @@ def provider_has_usable_credentials(
     return bool(environ.get(provider.api_key_env))
 
 
+def _reasoning_effort_from_provider(
+    provider: OpenAICompatibleProviderConfig,
+    *,
+    model: str | None,
+    thinking_level: ThinkingLevel | None,
+) -> str | None:
+    if thinking_level is None or provider.thinking_parameter != "reasoning_effort":
+        return None
+
+    levels = provider_thinking_levels(provider, model=model)
+    if not levels:
+        return None
+
+    normalized = normalize_thinking_level(thinking_level)
+    if normalized not in levels:
+        selected_model = model or provider.default_model
+        available = ", ".join(levels)
+        raise ProviderConfigError(
+            f"Thinking mode {normalized} is not available for "
+            f"{provider.name}:{selected_model}. Available modes: {available}"
+        )
+    return reasoning_effort_for_level(normalized)
+
+
 def _provider_from_json(data: object) -> ProviderConfig:
     if not isinstance(data, dict):
         raise ProviderConfigError("Provider entries must be JSON objects")
@@ -452,6 +619,18 @@ def _provider_from_json(data: object) -> ProviderConfig:
         ),
         f"providers[{name}].max_retry_delay_seconds",
     )
+    thinking_levels = _optional_thinking_levels(
+        data.get("thinking_levels"), f"providers[{name}].thinking_levels"
+    )
+    thinking_models = _optional_string_tuple(
+        data.get("thinking_models"), f"providers[{name}].thinking_models"
+    )
+    thinking_default = _optional_thinking_level(
+        data.get("thinking_default"), f"providers[{name}].thinking_default"
+    )
+    thinking_parameter = _optional_thinking_parameter(
+        data.get("thinking_parameter"), f"providers[{name}].thinking_parameter"
+    )
     if default_model not in models:
         models = (*models, default_model)
     if provider_type == "anthropic":
@@ -466,6 +645,10 @@ def _provider_from_json(data: object) -> ProviderConfig:
             timeout_seconds=timeout_seconds,
             max_retries=max_retries,
             max_retry_delay_seconds=max_retry_delay_seconds,
+            thinking_levels=thinking_levels,
+            thinking_models=thinking_models,
+            thinking_default=thinking_default,
+            thinking_parameter=thinking_parameter,
         )
     if provider_type == "openai-codex":
         return OpenAICodexProviderConfig(
@@ -479,6 +662,10 @@ def _provider_from_json(data: object) -> ProviderConfig:
             timeout_seconds=timeout_seconds,
             max_retries=max_retries,
             max_retry_delay_seconds=max_retry_delay_seconds,
+            thinking_levels=thinking_levels,
+            thinking_models=thinking_models,
+            thinking_default=thinking_default,
+            thinking_parameter=thinking_parameter,
         )
     return OpenAICompatibleProviderConfig(
         name=name,
@@ -491,6 +678,10 @@ def _provider_from_json(data: object) -> ProviderConfig:
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
         max_retry_delay_seconds=max_retry_delay_seconds,
+        thinking_levels=thinking_levels,
+        thinking_models=thinking_models,
+        thinking_default=thinking_default,
+        thinking_parameter=thinking_parameter,
     )
 
 
@@ -529,6 +720,44 @@ def _validate_provider_numbers(
         raise ProviderConfigError("Provider max_retry_delay_seconds must be 0 or greater")
 
 
+def _validate_thinking_config(
+    *,
+    thinking_levels: tuple[ThinkingLevel, ...] | None,
+    thinking_models: tuple[str, ...],
+    thinking_default: ThinkingLevel | None,
+    thinking_parameter: ThinkingParameter | None,
+) -> None:
+    if thinking_levels is None:
+        if thinking_models or thinking_default is not None or thinking_parameter is not None:
+            raise ProviderConfigError(
+                "Provider thinking_levels must be set before thinking metadata"
+            )
+        return
+    try:
+        normalized = normalize_thinking_levels(thinking_levels)
+    except ValueError as exc:
+        raise ProviderConfigError(str(exc)) from exc
+    if normalized != thinking_levels:
+        raise ProviderConfigError("Provider thinking_levels must be normalized")
+    if any(not isinstance(model, str) or not model.strip() for model in thinking_models):
+        raise ProviderConfigError("Provider thinking_models must contain non-empty strings")
+    if thinking_default is not None and thinking_default not in thinking_levels:
+        raise ProviderConfigError("Provider thinking_default must be in thinking_levels")
+    if thinking_parameter not in {None, "reasoning_effort"}:
+        raise ProviderConfigError("Provider thinking_parameter must be reasoning_effort")
+
+
+def _reject_unimplemented_thinking_config(
+    *,
+    provider_type: str,
+    thinking_levels: tuple[ThinkingLevel, ...] | None,
+) -> None:
+    if thinking_levels is not None:
+        raise ProviderConfigError(
+            f"{provider_type} thinking controls are not implemented yet"
+        )
+
+
 def _optional_string(value: object, field_name: str) -> str | None:
     if value is None:
         return None
@@ -550,6 +779,53 @@ def _string_tuple(value: object, field_name: str) -> tuple[str, ...]:
     if len(items) != len(value):
         raise ProviderConfigError(f"Provider field must be a string list: {field_name}")
     return items
+
+
+def _optional_string_tuple(value: object, field_name: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ProviderConfigError(f"Provider field must be a string list: {field_name}")
+    items = tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
+    if len(items) != len(value):
+        raise ProviderConfigError(f"Provider field must be a string list: {field_name}")
+    return items
+
+
+def _optional_thinking_levels(
+    value: object,
+    field_name: str,
+) -> tuple[ThinkingLevel, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ProviderConfigError(f"Provider field must be a thinking mode list: {field_name}")
+    try:
+        return normalize_thinking_levels(value)
+    except ValueError as exc:
+        raise ProviderConfigError(str(exc)) from exc
+
+
+def _optional_thinking_level(value: object, field_name: str) -> ThinkingLevel | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ProviderConfigError(f"Provider field must be a thinking mode: {field_name}")
+    try:
+        return normalize_thinking_level(value)
+    except ValueError as exc:
+        raise ProviderConfigError(str(exc)) from exc
+
+
+def _optional_thinking_parameter(
+    value: object,
+    field_name: str,
+) -> ThinkingParameter | None:
+    if value is None:
+        return None
+    if value == "reasoning_effort":
+        return "reasoning_effort"
+    raise ProviderConfigError(f"Provider field must be reasoning_effort: {field_name}")
 
 
 def _string_dict(value: object, field_name: str) -> dict[str, str]:

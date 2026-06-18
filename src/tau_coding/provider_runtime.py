@@ -24,6 +24,7 @@ from tau_coding.provider_config import (
     anthropic_config_from_provider,
     openai_compatible_config_from_provider,
 )
+from tau_coding.thinking import ThinkingLevel
 
 
 class ClosableModelProvider(ModelProvider, Protocol):
@@ -38,6 +39,8 @@ def create_model_provider(
     provider: ProviderConfig,
     *,
     credential_store: FileCredentialStore | None = None,
+    model: str | None = None,
+    thinking_level: ThinkingLevel | None = None,
 ) -> ClosableModelProvider:
     """Create a runtime model provider from durable provider settings."""
     credentials = credential_store or FileCredentialStore()
@@ -60,7 +63,12 @@ def create_model_provider(
             )
         )
     return OpenAICompatibleProvider(
-        openai_compatible_config_from_provider(provider, credential_reader=credentials)
+        openai_compatible_config_from_provider(
+            provider,
+            credential_reader=credentials,
+            model=model,
+            thinking_level=thinking_level,
+        )
     )
 
 

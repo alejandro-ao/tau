@@ -150,6 +150,31 @@ def test_thinking_command_lists_and_requests_modes(tmp_path: Path) -> None:
     assert "Unknown thinking mode: maximum" in unknown_result.message
 
 
+def test_thinking_command_reports_unavailable_modes(tmp_path: Path) -> None:
+    session = FakeSession(tmp_path)
+    session.available_thinking_levels = ()
+    registry = create_default_command_registry()
+
+    list_result = registry.execute(session, "/thinking")
+    switch_result = registry.execute(session, "/thinking high")
+
+    assert list_result.message is not None
+    assert "Thinking controls: unavailable" in list_result.message
+    assert switch_result.message is not None
+    assert "Thinking controls are unavailable for openai:fake-model" in switch_result.message
+
+
+def test_thinking_command_rejects_unsupported_available_mode(tmp_path: Path) -> None:
+    session = FakeSession(tmp_path)
+    session.available_thinking_levels = ("off", "low")
+
+    result = create_default_command_registry().execute(session, "/thinking high")
+
+    assert result.message is not None
+    assert "Thinking mode high is not available for openai:fake-model" in result.message
+    assert "Available modes: off, low" in result.message
+
+
 def test_provider_command_is_not_registered(tmp_path: Path) -> None:
     result = create_default_command_registry().execute(FakeSession(tmp_path), "/provider")
 

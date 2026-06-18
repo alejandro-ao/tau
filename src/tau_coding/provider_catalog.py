@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from tau_coding.thinking import ThinkingLevel, ThinkingParameter
+
 ProviderKind = Literal["openai-compatible", "anthropic", "openai-codex"]
 
 
@@ -19,6 +21,10 @@ class ProviderCatalogEntry:
     models: tuple[str, ...]
     default_model: str
     docs_url: str
+    thinking_levels: tuple[ThinkingLevel, ...] | None = None
+    thinking_models: tuple[str, ...] = ()
+    thinking_default: ThinkingLevel | None = None
+    thinking_parameter: ThinkingParameter | None = None
 
 
 BUILTIN_PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
@@ -44,6 +50,20 @@ BUILTIN_PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         ),
         default_model="gpt-5.5",
         docs_url="https://platform.openai.com/docs",
+        thinking_levels=("off", "low", "medium", "high", "xhigh"),
+        thinking_models=(
+            "gpt-5.5",
+            "gpt-5.5-pro",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.3-codex",
+            "gpt-5.2",
+            "gpt-5.1",
+            "gpt-5",
+            "gpt-5-mini",
+        ),
+        thinking_default="medium",
+        thinking_parameter="reasoning_effort",
     ),
     ProviderCatalogEntry(
         name="openai-codex",

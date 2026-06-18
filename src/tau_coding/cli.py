@@ -36,6 +36,7 @@ from tau_coding.resources import TauResourcePaths
 from tau_coding.session import CodingSession, CodingSessionConfig, jsonl_session_storage
 from tau_coding.session_export import default_session_export_path, export_session_html
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
+from tau_coding.thinking import DEFAULT_THINKING_LEVEL
 from tau_coding.tui import run_tui_app
 
 app = typer.Typer(
@@ -345,7 +346,11 @@ async def run_openai_print_mode(
     """Run print mode with the OpenAI-compatible provider configured from the environment."""
     settings = load_provider_settings()
     selection = resolve_provider_selection(settings, provider_name=provider_name, model=model)
-    provider = create_model_provider(selection.provider)
+    provider = create_model_provider(
+        selection.provider,
+        model=selection.model,
+        thinking_level=DEFAULT_THINKING_LEVEL,
+    )
     manager = session_manager or SessionManager()
     record = manager.create_session(cwd=cwd, model=selection.model)
     try:
@@ -360,6 +365,7 @@ async def run_openai_print_mode(
             session_manager=manager,
             provider_name=selection.provider.name,
             provider_settings=settings,
+            runtime_provider_config=selection.provider,
         )
     finally:
         await provider.aclose()
@@ -378,6 +384,7 @@ async def run_print_mode(
     session_manager: SessionManager | None = None,
     provider_name: str = DEFAULT_PROVIDER_NAME,
     provider_settings: ProviderSettings | None = None,
+    runtime_provider_config: ProviderConfig | None = None,
 ) -> bool:
     """Run one non-interactive prompt and print streamed events.
 
@@ -395,6 +402,7 @@ async def run_print_mode(
             session_manager=session_manager,
             provider_name=provider_name,
             provider_settings=provider_settings,
+            runtime_provider_config=runtime_provider_config,
         )
     )
     renderer = create_event_renderer(output)

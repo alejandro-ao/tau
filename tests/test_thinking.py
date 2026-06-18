@@ -5,6 +5,8 @@ from tau_coding.thinking import (
     THINKING_LEVELS,
     next_thinking_level,
     normalize_thinking_level,
+    normalize_thinking_levels,
+    reasoning_effort_for_level,
 )
 
 
@@ -23,3 +25,18 @@ def test_next_thinking_level_cycles_supported_modes() -> None:
     assert next_thinking_level("xhigh") == "off"
     assert next_thinking_level("missing", available=("low", "high")) == "low"
     assert THINKING_LEVELS == ("off", "minimal", "low", "medium", "high", "xhigh")
+
+
+def test_normalize_thinking_levels_rejects_empty_and_duplicates() -> None:
+    assert normalize_thinking_levels(["OFF", "high"]) == ("off", "high")
+
+    with pytest.raises(ValueError, match="non-empty"):
+        normalize_thinking_levels([])
+
+    with pytest.raises(ValueError, match="unique"):
+        normalize_thinking_levels(["high", "HIGH"])
+
+
+def test_reasoning_effort_maps_off_to_none() -> None:
+    assert reasoning_effort_for_level("off") == "none"
+    assert reasoning_effort_for_level("xhigh") == "xhigh"

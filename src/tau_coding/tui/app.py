@@ -38,6 +38,7 @@ from tau_coding.provider_catalog import (
     builtin_provider_entry,
 )
 from tau_coding.provider_config import (
+    ProviderConfig,
     load_provider_settings,
     provider_config_from_catalog_entry,
     resolve_provider_selection,
@@ -52,6 +53,7 @@ from tau_coding.session import (
     jsonl_session_storage,
 )
 from tau_coding.session_manager import SessionManager
+from tau_coding.thinking import DEFAULT_THINKING_LEVEL
 from tau_coding.tui.adapter import TuiEventAdapter
 from tau_coding.tui.autocomplete import CompletionOption, CompletionState, build_completion_state
 from tau_coding.tui.config import TuiKeybindings, TuiSettings, TuiTheme, load_tui_settings
@@ -1745,14 +1747,20 @@ async def run_tui_app(
         model=model,
     )
     startup_message: str | None = None
+    runtime_provider_config: ProviderConfig | None = selection.provider
     try:
-        provider = create_model_provider(selection.provider)
+        provider = create_model_provider(
+            selection.provider,
+            model=selection.model,
+            thinking_level=DEFAULT_THINKING_LEVEL,
+        )
     except RuntimeError:
         startup_message = (
             "Login required. Run /login to choose a provider, "
             f"or /login {selection.provider.name} to continue with the current provider."
         )
         provider = LoginRequiredProvider(startup_message)
+        runtime_provider_config = None
     manager = session_manager or SessionManager()
     session: CodingSession | None = None
     try:
@@ -1774,6 +1782,7 @@ async def run_tui_app(
                 session_manager=manager,
                 provider_name=selection.provider.name,
                 provider_settings=provider_settings,
+                runtime_provider_config=runtime_provider_config,
                 auto_compact_token_threshold=auto_compact_token_threshold,
             )
         )

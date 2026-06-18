@@ -158,10 +158,46 @@ async def test_openai_compatible_provider_formats_request_and_streams_text() -> 
     payload = loads(request.content)
     assert payload["model"] == "test-model"
     assert payload["stream"] is True
+    assert "reasoning_effort" not in payload
     assert payload["messages"] == [
         {"role": "system", "content": "You are Tau."},
         {"role": "user", "content": "Say hello"},
     ]
+
+
+@pytest.mark.anyio
+async def test_openai_compatible_provider_includes_configured_reasoning_effort() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            text='data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+            headers={"content-type": "text/event-stream"},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatibleProvider(
+            OpenAICompatibleConfig(
+                api_key="test-key",
+                base_url="https://example.test/v1",
+                reasoning_effort="high",
+            ),
+            client=client,
+        )
+
+        events = await _collect(
+            provider.stream_response(
+                model="test-model",
+                system="You are Tau.",
+                messages=[UserMessage(content="Say ok")],
+                tools=[],
+            )
+        )
+
+    assert isinstance(events[-1], ProviderResponseEndEvent)
+    assert loads(requests[0].content)["reasoning_effort"] == "high"
 
 
 @pytest.mark.anyio
