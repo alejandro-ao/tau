@@ -17,6 +17,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 from textual.events import Resize
+from textual.selection import Selection
 from textual.widgets import RichLog, Static
 
 from tau_agent.tools import AgentTool
@@ -157,6 +158,13 @@ class TranscriptView(RichLog):
                 shrink=True,
                 scroll_end=scroll_end,
             )
+
+    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+        """Return selected transcript text from RichLog's rendered line buffer."""
+        if not self.lines:
+            return None
+        text = "\n".join(line.text.rstrip() for line in self.lines)
+        return selection.extract(text), "\n"
 
 
 def render_session_sidebar(

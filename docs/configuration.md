@@ -141,6 +141,10 @@ windows and hides it automatically when the terminal is narrow or short.
 When visible, it includes the active provider/model, thinking mode, loaded tools,
 skills, prompt templates, and context files such as `AGENTS.md`.
 
+Transcript text supports Textual selection for visible user, assistant, tool, and
+error output. Copy shortcuts are terminal-emulator dependent, and selecting the
+full visible row can include Tau's left accent marker.
+
 Any omitted keybinding uses the built-in default. Key names use Textual's key
 syntax, such as `ctrl+k`, `tab`, `shift+tab`, `down`, `up`, and `f2`. Tau rejects unknown
 themes, unknown keybinding names, empty keys, and duplicate assignments so

@@ -45,6 +45,7 @@ from tau_coding.tui.app import (
 from tau_coding.tui.config import HIGH_CONTRAST_THEME, TuiKeybindings, TuiSettings
 from tau_coding.tui.state import ChatItem
 from tau_coding.tui.widgets import (
+    TranscriptView,
     _compact_token_count,
     render_chat_item,
     render_compact_session_info,
@@ -369,6 +370,47 @@ def test_tool_chat_items_color_status_metadata_not_tool_name_or_results() -> Non
     assert f"{white};48;2;0;0;0m✗ bash" in error_output
     assert f"{red};48;2;0;0;0m✗ bash" not in error_output
     assert f"{red};48;2;0;0;0mfailed" not in error_output
+
+
+@pytest.mark.anyio
+async def test_transcript_view_exposes_visible_text_selection() -> None:
+    tool_call = ToolCall(
+        id="call-1",
+        name="bash",
+        arguments={"command": "printf hello", "timeout": 5},
+    )
+    app = TauTuiApp(
+        FakeSession(
+            messages=(
+                UserMessage(content="Run the command"),
+                AssistantMessage(content="I will run it.", tool_calls=(tool_call,)),
+                ToolResultMessage(
+                    tool_call_id="call-1",
+                    name="bash",
+                    ok=True,
+                    content="hello\nworld",
+                ),
+            )
+        )
+    )
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        app.state.show_tool_results = True
+        app.state.add_item("error", "Error: provider failed")
+        app._refresh()
+        await pilot.pause()
+
+        transcript = app.query_one("#transcript", TranscriptView)
+        transcript.text_select_all()
+
+        selected = app.screen.get_selected_text()
+        assert selected is not None
+        assert "Run the command" in selected
+        assert "I will run it." in selected
+        assert "$ printf hello" in selected
+        assert "hello" in selected
+        assert "world" in selected
+        assert "Error: provider failed" in selected
 
 
 def test_assistant_chat_items_render_markdown_lists() -> None:
