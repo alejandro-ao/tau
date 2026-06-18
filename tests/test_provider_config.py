@@ -6,6 +6,7 @@ from tau_coding.paths import TauPaths
 from tau_coding.provider_config import (
     DEFAULT_MODEL,
     AnthropicProviderConfig,
+    OpenAICodexProviderConfig,
     OpenAICompatibleProviderConfig,
     ProviderConfigError,
     ProviderSettings,
@@ -25,6 +26,7 @@ def test_load_provider_settings_missing_file_uses_openai_default(tmp_path: Path)
     assert settings.default_provider == "openai"
     assert [provider.name for provider in settings.providers] == [
         "openai",
+        "openai-codex",
         "anthropic",
         "openrouter",
         "huggingface",
@@ -90,6 +92,7 @@ def test_upsert_openai_compatible_provider_replaces_and_sets_default() -> None:
         "huggingface",
         "local",
         "openai",
+        "openai-codex",
         "openrouter",
     ]
     assert replaced.get_provider("local").default_model == "llama"
@@ -285,6 +288,32 @@ def test_provider_settings_from_json_loads_headers() -> None:
 
     assert isinstance(provider, OpenAICompatibleProviderConfig)
     assert provider.headers == {"X-HF-Bill-To": "my-org"}
+
+
+def test_provider_settings_from_json_loads_openai_codex_provider() -> None:
+    settings = provider_settings_from_json(
+        {
+            "default_provider": "openai-codex",
+            "providers": [
+                {
+                    "type": "openai-codex",
+                    "name": "openai-codex",
+                    "base_url": "https://chatgpt.com/backend-api",
+                    "api_key_env": "OPENAI_CODEX_ACCESS_TOKEN",
+                    "credential_name": "openai-codex",
+                    "models": ["gpt-5.5", "gpt-5.4"],
+                    "default_model": "gpt-5.5",
+                    "headers": {"X-Test": "enabled"},
+                }
+            ],
+        }
+    )
+
+    provider = settings.get_provider("openai-codex")
+
+    assert isinstance(provider, OpenAICodexProviderConfig)
+    assert provider.default_model == "gpt-5.5"
+    assert provider.headers == {"X-Test": "enabled"}
 
 
 def test_load_provider_settings_merges_builtin_model_catalog(tmp_path: Path) -> None:

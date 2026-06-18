@@ -32,9 +32,7 @@ def test_version_command() -> None:
 def test_cli_without_prompt_invokes_tui_runner(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    calls: list[
-        tuple[str | None, Path, str | None, bool, str | None, int | None, str | None]
-    ] = []
+    calls: list[tuple[str | None, Path, str | None, bool, str | None, int | None, str | None]] = []
 
     async def fake_run_openai_tui(
         model: str | None,
@@ -69,9 +67,7 @@ def test_cli_without_prompt_invokes_tui_runner(
 def test_cli_positional_prompt_invokes_tui_runner(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    calls: list[
-        tuple[str | None, Path, str | None, bool, str | None, int | None, str | None]
-    ] = []
+    calls: list[tuple[str | None, Path, str | None, bool, str | None, int | None, str | None]] = []
 
     async def fake_run_openai_tui(
         model: str | None,
@@ -330,9 +326,7 @@ def test_cli_exits_nonzero_when_print_mode_fails(monkeypatch: pytest.MonkeyPatch
 def test_default_tui_invokes_tui_runner_with_flags(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    calls: list[
-        tuple[str | None, Path, str | None, bool, str | None, int | None, str | None]
-    ] = []
+    calls: list[tuple[str | None, Path, str | None, bool, str | None, int | None, str | None]] = []
 
     async def fake_run_openai_tui(
         model: str | None,
@@ -523,6 +517,7 @@ def test_providers_command_lists_default_provider(
 
     assert result.exit_code == 0
     assert "*\topenai\topenai-compatible\tgpt-5.5" in result.stdout
+    assert " \topenai-codex\topenai-codex\tgpt-5.5" in result.stdout
     assert " \tanthropic\tanthropic\tclaude-sonnet-4-6" in result.stdout
     assert " \topenrouter\topenai-compatible\topenai/gpt-5.5" in result.stdout
     assert " \thuggingface\topenai-compatible\topenai/gpt-oss-120b" in result.stdout

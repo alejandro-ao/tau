@@ -17,7 +17,12 @@ from tau_coding.context_window import (
     estimate_tool_tokens,
     summarize_messages_for_compaction,
 )
-from tau_coding.credentials import CredentialStoreError, FileCredentialStore, credentials_path
+from tau_coding.credentials import (
+    CredentialStoreError,
+    FileCredentialStore,
+    OAuthCredential,
+    credentials_path,
+)
 from tau_coding.paths import TauPaths
 from tau_coding.prompt_templates import (
     PromptTemplate,
@@ -34,6 +39,7 @@ from tau_coding.provider_config import (
     DEFAULT_MODEL,
     DEFAULT_PROVIDER_NAME,
     AnthropicProviderConfig,
+    OpenAICodexProviderConfig,
     OpenAICompatibleProviderConfig,
     ProviderConfig,
     ProviderConfigError,
@@ -127,6 +133,8 @@ __all__ = [
     "ModelChoice",
     "AnthropicProviderConfig",
     "OpenAICompatibleProviderConfig",
+    "OpenAICodexProviderConfig",
+    "OAuthCredential",
     "PrintOutputMode",
     "ProjectContextFile",
     "PromptTemplate",

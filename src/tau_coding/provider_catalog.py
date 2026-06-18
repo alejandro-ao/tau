@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-ProviderKind = Literal["openai-compatible", "anthropic"]
+ProviderKind = Literal["openai-compatible", "anthropic", "openai-codex"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +44,24 @@ BUILTIN_PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         ),
         default_model="gpt-5.5",
         docs_url="https://platform.openai.com/docs",
+    ),
+    ProviderCatalogEntry(
+        name="openai-codex",
+        display_name="OpenAI Codex subscription",
+        kind="openai-codex",
+        base_url="https://chatgpt.com/backend-api",
+        api_key_env="OPENAI_CODEX_ACCESS_TOKEN",
+        credential_name="openai-codex",
+        models=(
+            "gpt-5.5",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.3-codex",
+            "gpt-5.3-codex-spark",
+            "gpt-5.2",
+        ),
+        default_model="gpt-5.5",
+        docs_url="https://chatgpt.com/codex",
     ),
     ProviderCatalogEntry(
         name="anthropic",
