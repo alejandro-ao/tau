@@ -706,27 +706,33 @@ def test_tui_app_loads_restored_messages_into_display_state() -> None:
 
 
 @pytest.mark.anyio
-async def test_tui_app_animates_activity_status_while_running() -> None:
+async def test_tui_app_shows_working_indicator_above_prompt_while_running() -> None:
     app = TauTuiApp(FakeSession())
 
     async with app.run_test():
         status = app.query_one("#status")
+        activity = app.query_one("#activity-status")
+        prompt = app.query_one("#prompt")
 
         assert str(status.render()) == "Ready"
+        assert str(activity.render()) == ""
+        assert activity.region.y < prompt.region.y
 
         app.adapter.apply(AgentStartEvent())
         app._refresh()
 
-        assert str(status.render()) == "Working |"
+        assert str(status.render()) == ""
+        assert str(activity.render()) == "working |"
 
         app._tick_activity()
 
-        assert str(status.render()) == "Working /"
+        assert str(activity.render()) == "working /"
 
         app.adapter.apply(AgentEndEvent())
         app._refresh()
 
         assert str(status.render()) == "Ready"
+        assert str(activity.render()) == ""
 
 
 @pytest.mark.anyio
@@ -735,6 +741,7 @@ async def test_tui_app_clears_activity_status_on_error() -> None:
 
     async with app.run_test():
         status = app.query_one("#status")
+        activity = app.query_one("#activity-status")
 
         app.adapter.apply(AgentStartEvent())
         app._refresh()
@@ -742,6 +749,7 @@ async def test_tui_app_clears_activity_status_on_error() -> None:
         app._refresh()
 
         assert str(status.render()) == "Ready"
+        assert str(activity.render()) == ""
 
 
 @pytest.mark.anyio
@@ -1938,9 +1946,7 @@ async def test_run_tui_app_opens_when_provider_login_is_missing(
     monkeypatch.setattr(
         tui_app,
         "create_model_provider",
-        lambda provider, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("Missing provider API key.")
-        ),
+        lambda provider, **kwargs: (_ for _ in ()).throw(RuntimeError("Missing provider API key.")),
     )
     monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
     monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)

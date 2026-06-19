@@ -69,7 +69,7 @@ from tau_coding.tui.widgets import (
 type BindingEntry = Binding | tuple[str, str] | tuple[str, str, str]
 SIDEBAR_MIN_WIDTH = 96
 SIDEBAR_MIN_HEIGHT = 24
-ACTIVITY_FRAMES = ("Working |", "Working /", "Working -", "Working \\")
+ACTIVITY_FRAMES = ("|", "/", "-", "\\")
 
 
 class LoginRequiredProvider:
@@ -829,6 +829,14 @@ class TauTuiApp(App[None]):
         border: tall $tau-prompt-border;
     }
 
+    #activity-status {
+        height: 1;
+        margin: 0 1 0 1;
+        padding: 0 1;
+        background: $tau-screen-background;
+        color: $tau-muted-text;
+    }
+
     #compact-session-info {
         height: auto;
         max-height: 3;
@@ -1082,6 +1090,7 @@ class TauTuiApp(App[None]):
                     highlight=True,
                     markup=False,
                 )
+                yield Static("", id="activity-status")
                 yield PromptInput(
                     placeholder="Ask Tau…  Enter submits, Shift+Enter inserts a newline",
                     id="prompt",
@@ -1611,24 +1620,33 @@ class TauTuiApp(App[None]):
                 )
             else:
                 self._activity_timer.resume()
+            self._apply_activity_indicator()
             return
         self._activity_frame = 0
         if self._activity_timer is not None:
             self._activity_timer.pause()
+        self._apply_activity_indicator()
 
     def _tick_activity(self) -> None:
         if not self.state.running:
             return
         self._activity_frame = (self._activity_frame + 1) % len(ACTIVITY_FRAMES)
-        status = self.query_one("#status", Static)
-        status.update(self._status_text())
+        self._apply_activity_indicator()
+
+    def _apply_activity_indicator(self) -> None:
+        activity = self.query_one("#activity-status", Static)
+        activity.update(self._activity_text())
+
+    def _activity_text(self) -> str:
+        if not self.state.running:
+            return ""
+        return f"working {ACTIVITY_FRAMES[self._activity_frame]}"
 
     def _status_text(self) -> str:
         queue_text = _queue_status_text(self.state)
-        if not self.state.running:
-            return f"Ready | queued: {queue_text}" if queue_text else "Ready"
-        status = ACTIVITY_FRAMES[self._activity_frame]
-        return f"{status} | queued: {queue_text}" if queue_text else status
+        if self.state.running:
+            return f"queued: {queue_text}" if queue_text else ""
+        return f"Ready | queued: {queue_text}" if queue_text else "Ready"
 
     def _refresh_completions(self) -> None:
         suggestions = self.query_one("#autocomplete", Static)
