@@ -110,6 +110,17 @@ completions are open, and switches again while an agent turn is running. Tau
 does not add a separate custom hint row; the built-in bottom toolbar remains the
 single shortcut surface.
 
+The TUI treats `Esc` as a two-step cancellation flow. The first press requests
+graceful cancellation through `CodingSession.cancel()` and leaves the active
+worker visible while the provider or tool observes the cancellation token. The
+second press interrupts the current Textual worker immediately. This mirrors
+Pi's cancellation boundary: UI code requests cancellation, the portable agent
+loop carries a cancellation token, and long-running tools such as `bash` honor
+that token without making Textual a dependency of `tau_agent`. Because
+cancellation is an intentional user action, the built-in TUI renders the final
+cancellation event as status text instead of adding an error row to the
+transcript.
+
 Assistant code block rendering is now more defensive. Known fence languages use
 Rich/Pygments syntax highlighting, while unknown or custom fence labels fall
 back to plain code rendering instead of producing a broken transcript block.

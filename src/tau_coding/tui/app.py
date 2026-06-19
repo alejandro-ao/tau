@@ -1611,8 +1611,9 @@ class TauTuiApp(App[None]):
         """Cancel the active agent turn."""
         self._cancel_active_prompt(notify=True)
 
-    def _cancel_active_prompt(self, *, notify: bool) -> None:
+    def _cancel_active_prompt(self, *, notify: bool, interrupt: bool = False) -> None:
         """Cancel the active prompt worker and ignore any late events from it."""
+        del interrupt
         worker = self._prompt_worker
         is_worker_active = worker is not None and not worker.is_cancelled
         is_session_running = bool(getattr(self.session, "is_running", False))
@@ -1630,7 +1631,7 @@ class TauTuiApp(App[None]):
         self.state.assistant_buffer = ""
         self._refresh()
         if notify:
-            self._notify("Cancellation requested.")
+            self._notify("Interrupted current operation.")
 
     def action_accept_completion(self) -> None:
         """Accept the currently selected prompt completion."""
@@ -1775,7 +1776,7 @@ class TauTuiApp(App[None]):
         self._refresh()
 
     async def _new_session(self) -> None:
-        self._cancel_active_prompt(notify=False)
+        self._cancel_active_prompt(notify=False, interrupt=True)
         new_session = getattr(self.session, "new_session", None)
         if new_session is None:
             self._notify("Session manager is not available.")

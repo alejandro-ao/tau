@@ -1637,7 +1637,7 @@ async def test_tui_app_escape_cancels_running_session_from_prompt() -> None:
 
         assert session.cancel_count == 1
         assert app.state.running is False
-        assert notifications == ["Cancellation requested."]
+        assert notifications == ["Interrupted current operation."]
 
 
 @pytest.mark.anyio
