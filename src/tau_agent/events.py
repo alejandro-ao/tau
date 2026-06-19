@@ -46,6 +46,14 @@ class RetryEvent(BaseModel):
     data: dict[str, JSONValue] | None = None
 
 
+class QueueUpdateEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["queue_update"] = "queue_update"
+    steering: tuple[str, ...] = ()
+    follow_up: tuple[str, ...] = ()
+
+
 class MessageStartEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -111,6 +119,7 @@ type AgentEvent = (
     | AgentEndEvent
     | TurnStartEvent
     | TurnEndEvent
+    | QueueUpdateEvent
     | RetryEvent
     | MessageStartEvent
     | MessageDeltaEvent

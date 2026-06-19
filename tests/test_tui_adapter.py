@@ -7,6 +7,7 @@ from tau_agent import (
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    QueueUpdateEvent,
     RetryEvent,
     ThinkingDeltaEvent,
     ToolCall,
@@ -184,6 +185,17 @@ def test_tui_adapter_records_retry_status() -> None:
     assert [(item.role, item.text) for item in state.items] == [
         ("status", "… Retrying provider request 2/3 after HTTP 503.")
     ]
+
+
+def test_tui_adapter_records_queue_updates() -> None:
+    state = TuiState()
+    adapter = TuiEventAdapter(state)
+
+    adapter.apply(QueueUpdateEvent(steering=("adjust",), follow_up=("after",)))
+
+    assert state.queued_steering == ("adjust",)
+    assert state.queued_follow_up == ("after",)
+    assert state.queued_message_count == 2
 
 
 def test_tool_result_blocks_preview_long_content() -> None:

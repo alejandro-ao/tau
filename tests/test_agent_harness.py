@@ -2,7 +2,14 @@ from collections.abc import Mapping
 
 import pytest
 
-from tau_agent import AgentTool, AgentToolResult, AssistantMessage, UserMessage
+from tau_agent import (
+    AgentTool,
+    AgentToolResult,
+    AssistantMessage,
+    MessageEndEvent,
+    MessageStartEvent,
+    UserMessage,
+)
 from tau_agent.harness import AgentHarness, AgentHarnessConfig
 from tau_agent.types import JSONValue
 from tau_ai import (
@@ -82,6 +89,22 @@ def test_harness_can_replace_messages() -> None:
     assert harness.messages == (UserMessage(content="Summary"),)
 
 
+def test_harness_can_clear_queued_messages() -> None:
+    harness = AgentHarness(
+        AgentHarnessConfig(provider=FakeProvider([]), model="fake", system="You are Tau.")
+    )
+
+    harness.steer("Adjust")
+    harness.follow_up("Later")
+    cleared = harness.clear_queues()
+
+    assert cleared.steering == (UserMessage(content="Adjust"),)
+    assert cleared.follow_up == (UserMessage(content="Later"),)
+    assert harness.pending_message_count == 0
+    assert harness.queue_update_event().steering == ()
+    assert harness.queue_update_event().follow_up == ()
+
+
 @pytest.mark.anyio
 async def test_subscribed_listeners_receive_events_and_can_unsubscribe() -> None:
     assistant = AssistantMessage(content="Hello")
@@ -156,6 +179,130 @@ async def test_cancel_requests_cancellation_for_current_run() -> None:
         "agent_end",
     ]
     assert harness.messages == (UserMessage(content="Hi"),)
+
+
+@pytest.mark.anyio
+async def test_harness_rejects_overlapping_prompt_runs() -> None:
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Hello")),
+            ],
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Queued answer")),
+            ],
+        ]
+    )
+    harness = AgentHarness(
+        AgentHarnessConfig(provider=provider, model="fake", system="You are Tau.")
+    )
+
+    events = []
+    queued = False
+    async for event in harness.prompt("Hi"):
+        events.append(event)
+        if (
+            isinstance(event, MessageStartEvent)
+            and event.message_role == "assistant"
+            and not queued
+        ):
+            with pytest.raises(RuntimeError, match="already running"):
+                harness.prompt("Overlapping")
+            queue_event = harness.steer("Queued instead")
+            assert queue_event.steering == ("Queued instead",)
+            queued = True
+
+    assert harness.is_running is False
+    assert harness.pending_message_count == 0
+    assert harness.messages == (
+        UserMessage(content="Hi"),
+        AssistantMessage(content="Hello"),
+        UserMessage(content="Queued instead"),
+        AssistantMessage(content="Queued answer"),
+    )
+
+
+@pytest.mark.anyio
+async def test_harness_drains_follow_up_messages_one_at_a_time_by_default() -> None:
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="First")),
+            ],
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Second")),
+            ],
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Third")),
+            ],
+        ]
+    )
+    harness = AgentHarness(
+        AgentHarnessConfig(provider=provider, model="fake", system="You are Tau.")
+    )
+
+    events = []
+    async for event in harness.prompt("Hi"):
+        events.append(event)
+        if isinstance(event, MessageEndEvent) and event.message.content == "First":
+            harness.follow_up("Second prompt")
+            harness.follow_up("Third prompt")
+
+    assert [event.type for event in events].count("queue_update") == 2
+    assert harness.messages == (
+        UserMessage(content="Hi"),
+        AssistantMessage(content="First"),
+        UserMessage(content="Second prompt"),
+        AssistantMessage(content="Second"),
+        UserMessage(content="Third prompt"),
+        AssistantMessage(content="Third"),
+    )
+    assert provider.calls[1][2] == list(harness.messages[:3])
+    assert provider.calls[2][2] == list(harness.messages[:5])
+    assert harness.pending_message_count == 0
+
+
+@pytest.mark.anyio
+async def test_harness_can_drain_all_queued_messages_together() -> None:
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="First")),
+            ],
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Second")),
+            ],
+        ]
+    )
+    harness = AgentHarness(
+        AgentHarnessConfig(
+            provider=provider,
+            model="fake",
+            system="You are Tau.",
+            queue_mode="all",
+        )
+    )
+
+    async for event in harness.prompt("Hi"):
+        if isinstance(event, MessageEndEvent) and event.message.content == "First":
+            harness.follow_up("Second prompt")
+            harness.follow_up("Third prompt")
+
+    assert harness.messages == (
+        UserMessage(content="Hi"),
+        AssistantMessage(content="First"),
+        UserMessage(content="Second prompt"),
+        UserMessage(content="Third prompt"),
+        AssistantMessage(content="Second"),
+    )
+    assert provider.calls[1][2] == list(harness.messages[:4])
 
 
 @pytest.mark.anyio

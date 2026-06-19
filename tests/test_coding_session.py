@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -8,6 +9,7 @@ from tau_agent import (
     AgentMessage,
     AgentTool,
     AssistantMessage,
+    QueueUpdateEvent,
     ToolCall,
     ToolResultMessage,
     UserMessage,
@@ -24,6 +26,7 @@ from tau_agent.session import (
 from tau_ai import (
     CancellationToken,
     FakeProvider,
+    ModelProvider,
     ProviderEvent,
     ProviderResponseEndEvent,
     ProviderResponseStartEvent,
@@ -46,7 +49,7 @@ async def _collect_session_events(session_stream: object) -> list[object]:
 
 
 def _config(
-    tmp_path: Path, provider: FakeProvider, storage: JsonlSessionStorage
+    tmp_path: Path, provider: ModelProvider, storage: JsonlSessionStorage
 ) -> CodingSessionConfig:
     return CodingSessionConfig(
         provider=provider,
@@ -81,6 +84,40 @@ class RaisingProvider:
         async def iterator() -> AsyncIterator[ProviderEvent]:
             raise RuntimeError("provider exploded")
             yield  # pragma: no cover
+
+        return iterator()
+
+
+class WaitingProvider:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.calls: list[list[AgentMessage]] = []
+        self.call_count = 0
+
+    def stream_response(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[AgentMessage],
+        tools: list[AgentTool],
+        signal: CancellationToken | None = None,
+    ) -> AsyncIterator[ProviderEvent]:
+        del model, system, tools, signal
+        call_index = self.call_count
+        self.call_count += 1
+        self.calls.append(list(messages))
+
+        async def iterator() -> AsyncIterator[ProviderEvent]:
+            if call_index == 0:
+                yield ProviderResponseStartEvent(model="fake")
+                self.started.set()
+                await self.release.wait()
+                yield ProviderResponseEndEvent(message=AssistantMessage(content="First"))
+                return
+            yield ProviderResponseStartEvent(model="fake")
+            yield ProviderResponseEndEvent(message=AssistantMessage(content="Second"))
 
         return iterator()
 
@@ -171,6 +208,50 @@ async def test_prompt_persists_user_assistant_and_leaf_entries(tmp_path: Path) -
     assert entries[-1].type == "leaf"
     assert entries[-1].entry_id == message_entries[-1].id
     assert session.messages == (UserMessage(content="Hello"), AssistantMessage(content="Hi"))
+
+
+@pytest.mark.anyio
+async def test_prompt_queues_steering_while_session_is_running(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    provider = WaitingProvider()
+    session = await CodingSession.load(_config(tmp_path, provider, storage))
+    run_events: list[object] = []
+
+    async def run_prompt() -> None:
+        async for event in session.prompt("Hello"):
+            run_events.append(event)
+
+    task = asyncio.create_task(run_prompt())
+    await provider.started.wait()
+
+    with pytest.raises(RuntimeError, match="already running"):
+        await _collect_session_events(session.prompt("Dropped overlap"))
+
+    queue_events = await _collect_session_events(
+        session.prompt("Queued steering", streaming_behavior="steer")
+    )
+    entries_before_release = await storage.read_all()
+
+    provider.release.set()
+    await task
+
+    assert queue_events == [QueueUpdateEvent(steering=("Queued steering",))]
+    assert [entry.type for entry in entries_before_release] == [
+        "session_info",
+        "model_change",
+        "thinking_level_change",
+    ]
+    assert session.messages == (
+        UserMessage(content="Hello"),
+        AssistantMessage(content="First"),
+        UserMessage(content="Queued steering"),
+        AssistantMessage(content="Second"),
+    )
+    assert provider.calls[1] == list(session.messages[:3])
+    entries = await storage.read_all()
+    message_entries = [entry for entry in entries if entry.type == "message"]
+    assert [entry.message for entry in message_entries] == list(session.messages)
+    assert any(isinstance(event, QueueUpdateEvent) for event in run_events)
 
 
 @pytest.mark.anyio

@@ -55,6 +55,7 @@ The event stream contains provider-neutral `AgentEvent` values from
 
 - `AgentStartEvent` and `AgentEndEvent`
 - `MessageStartEvent`, `MessageDeltaEvent`, and `MessageEndEvent`
+- `QueueUpdateEvent`
 - `ThinkingDeltaEvent`
 - `ToolExecutionStartEvent`, `ToolExecutionUpdateEvent`, and `ToolExecutionEndEvent`
 - `ErrorEvent`
@@ -67,6 +68,28 @@ that expose it. Keep it separate from assistant message text, hide it by
 default, and let the user opt in from the frontend. The built-in Textual app
 uses `Ctrl+T` for this toggle and renders thinking content with a distinct
 transcript style.
+
+`QueueUpdateEvent` carries the current pending steering and follow-up prompt
+text. Use it for pending-message badges or status text. Queued prompts are not
+durable conversation messages until the harness injects them and emits normal
+`MessageStartEvent`/`MessageEndEvent` user-message events.
+
+## Queued Steering And Follow-ups
+
+If a user submits more text while `AgentStartEvent` has marked the session as
+running, queue it instead of starting a second prompt worker:
+
+```python
+async for event in session.prompt(user_text, streaming_behavior="steer"):
+    adapter.apply(event)
+    redraw(state)
+```
+
+Use `streaming_behavior="follow_up"` for a follow-up shortcut that should wait
+until the active run would otherwise stop. The built-in Textual frontend maps
+normal `Enter` while running to steering and `Alt-Enter` to follow-up queueing.
+Direct overlapping `session.prompt(...)` calls without `streaming_behavior` are
+rejected so callers do not mutate the same transcript from concurrent runs.
 
 ## Restoring Visible State
 
@@ -212,6 +235,7 @@ The built-in configurable action names are:
 - `cancel`
 - `command_palette`
 - `session_picker`
+- `queue_follow_up`
 - `accept_completion`
 - `completion_next`
 - `completion_previous`

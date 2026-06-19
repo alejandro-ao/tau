@@ -123,6 +123,7 @@ Example:
     "cancel": "escape",
     "command_palette": "ctrl+j",
     "session_picker": "ctrl+r",
+    "queue_follow_up": "alt+enter",
     "accept_completion": "f2",
     "completion_next": "down",
     "completion_previous": "up",
@@ -274,6 +275,11 @@ emits them. Thinking tokens are hidden by default and can be remapped in
 `~/.tau/tui.json` with the `toggle_thinking` keybinding.
 
 Remap the thinking-mode cycle shortcut with the `thinking_cycle` keybinding.
+
+While the agent is running in the TUI, `Enter` queues the prompt as steering for
+the active run. `Alt-Enter` queues the prompt as a follow-up that waits until the
+active run would otherwise stop. Remap the follow-up shortcut with
+`queue_follow_up`.
 
 Thinking controls are model-aware. Tau enables them only when the active
 provider configuration declares supported levels for the active model. Custom

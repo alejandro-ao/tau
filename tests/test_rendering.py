@@ -9,6 +9,7 @@ from tau_agent import (
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    QueueUpdateEvent,
     RetryEvent,
     ThinkingDeltaEvent,
     ToolCall,
@@ -113,12 +114,18 @@ def test_json_renderer_emits_jsonl(capsys: pytest.CaptureFixture[str]) -> None:
     renderer = JsonEventRenderer()
 
     renderer.render(MessageStartEvent())
+    renderer.render(QueueUpdateEvent(steering=("adjust",), follow_up=("after",)))
     renderer.render(ThinkingDeltaEvent(delta="hidden reasoning"))
     renderer.render(ErrorEvent(message="provider failed", recoverable=False))
 
     captured = capsys.readouterr()
     lines = captured.out.splitlines()
     assert json.loads(lines[0]) == {"type": "message_start", "message_role": "assistant"}
-    assert json.loads(lines[1]) == {"type": "thinking_delta", "delta": "hidden reasoning"}
-    assert json.loads(lines[2])["type"] == "error"
+    assert json.loads(lines[1]) == {
+        "type": "queue_update",
+        "steering": ["adjust"],
+        "follow_up": ["after"],
+    }
+    assert json.loads(lines[2]) == {"type": "thinking_delta", "delta": "hidden reasoning"}
+    assert json.loads(lines[3])["type"] == "error"
     assert renderer.finish() is False

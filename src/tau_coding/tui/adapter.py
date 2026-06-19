@@ -8,6 +8,7 @@ from tau_agent import (
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    QueueUpdateEvent,
     RetryEvent,
     ThinkingDeltaEvent,
     ToolExecutionEndEvent,
@@ -46,6 +47,10 @@ class TuiEventAdapter:
 
         if isinstance(event, ThinkingDeltaEvent):
             self.state.add_thinking_delta(event.delta)
+            return
+
+        if isinstance(event, QueueUpdateEvent):
+            self.state.update_queue(steering=event.steering, follow_up=event.follow_up)
             return
 
         if isinstance(event, MessageEndEvent):

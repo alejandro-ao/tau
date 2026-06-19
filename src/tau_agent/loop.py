@@ -1,6 +1,6 @@
 """Pure provider/tool agent loop."""
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 
 from tau_agent.events import (
     AgentEndEvent,
@@ -10,6 +10,7 @@ from tau_agent.events import (
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    QueueUpdateEvent,
     RetryEvent,
     ThinkingDeltaEvent,
     ToolExecutionEndEvent,
@@ -40,6 +41,9 @@ async def run_agent_loop(
     tools: list[AgentTool],
     max_turns: int | None = None,
     signal: CancellationToken | None = None,
+    get_steering_messages: Callable[[], Sequence[AgentMessage]] | None = None,
+    get_follow_up_messages: Callable[[], Sequence[AgentMessage]] | None = None,
+    get_queue_update: Callable[[], QueueUpdateEvent] | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """Run the pure agent loop and stream provider-neutral agent events.
 
@@ -113,6 +117,26 @@ async def run_agent_loop(
 
         if not assistant_message.tool_calls:
             yield TurnEndEvent(turn=turn)
+            queue_events = _drain_queued_messages(
+                messages,
+                get_steering_messages,
+                get_queue_update,
+            )
+            if queue_events:
+                for queue_event in queue_events:
+                    yield queue_event
+                turn += 1
+                continue
+            queue_events = _drain_queued_messages(
+                messages,
+                get_follow_up_messages,
+                get_queue_update,
+            )
+            if queue_events:
+                for queue_event in queue_events:
+                    yield queue_event
+                turn += 1
+                continue
             break
 
         async for tool_event in _execute_tool_calls(
@@ -123,6 +147,12 @@ async def run_agent_loop(
             yield tool_event
 
         yield TurnEndEvent(turn=turn)
+        for queue_event in _drain_queued_messages(
+            messages,
+            get_steering_messages,
+            get_queue_update,
+        ):
+            yield queue_event
         turn += 1
     else:
         yield ErrorEvent(
@@ -131,6 +161,27 @@ async def run_agent_loop(
         )
 
     yield AgentEndEvent()
+
+
+def _drain_queued_messages(
+    messages: list[AgentMessage],
+    get_messages: Callable[[], Sequence[AgentMessage]] | None,
+    get_queue_update: Callable[[], QueueUpdateEvent] | None,
+) -> tuple[AgentEvent, ...]:
+    if get_messages is None:
+        return ()
+    queued_messages = tuple(get_messages())
+    if not queued_messages:
+        return ()
+
+    messages.extend(queued_messages)
+    events: list[AgentEvent] = []
+    for message in queued_messages:
+        events.append(MessageStartEvent(message_role=message.role))
+        events.append(MessageEndEvent(message=message))
+    if get_queue_update is not None:
+        events.append(get_queue_update())
+    return tuple(events)
 
 
 async def _execute_tool_calls(

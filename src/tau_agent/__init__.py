@@ -8,6 +8,7 @@ from tau_agent.events import (
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    QueueUpdateEvent,
     RetryEvent,
     ThinkingDeltaEvent,
     ToolExecutionEndEvent,
@@ -20,6 +21,7 @@ from tau_agent.harness import (
     AgentHarness,
     AgentHarnessConfig,
     EventListener,
+    QueuedMessages,
     SimpleCancellationToken,
 )
 from tau_agent.loop import run_agent_loop
@@ -67,6 +69,8 @@ __all__ = [
     "MessageEntry",
     "MessageStartEvent",
     "ModelChangeEntry",
+    "QueuedMessages",
+    "QueueUpdateEvent",
     "RetryEvent",
     "SessionEntry",
     "SessionInfoEntry",

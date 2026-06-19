@@ -3,8 +3,16 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
-from tau_agent import AgentEvent, AgentHarness, AgentHarnessConfig, ErrorEvent
+from tau_agent import (
+    AgentEvent,
+    AgentHarness,
+    AgentHarnessConfig,
+    ErrorEvent,
+    QueuedMessages,
+    QueueUpdateEvent,
+)
 from tau_agent.messages import AgentMessage
 from tau_agent.session import (
     CompactionEntry,
@@ -68,6 +76,8 @@ from tau_coding.thinking import (
     normalize_thinking_level,
 )
 from tau_coding.tools import create_coding_tools
+
+StreamingBehavior = Literal["steer", "follow_up"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,6 +364,26 @@ class CodingSession:
         return self._config.session_manager
 
     @property
+    def is_running(self) -> bool:
+        """Return whether this session currently has an active agent run."""
+        return self._harness.is_running
+
+    @property
+    def queued_messages(self) -> QueuedMessages:
+        """Return queued steering and follow-up messages."""
+        return self._harness.queued_messages
+
+    @property
+    def queued_steering_messages(self) -> tuple[str, ...]:
+        """Return queued steering message text for UI display."""
+        return tuple(message.content for message in self._harness.queued_messages.steering)
+
+    @property
+    def queued_follow_up_messages(self) -> tuple[str, ...]:
+        """Return queued follow-up message text for UI display."""
+        return tuple(message.content for message in self._harness.queued_messages.follow_up)
+
+    @property
     def last_diagnostic_log_path(self) -> Path | None:
         """Return the last diagnostic log path written by this session."""
         return self._last_diagnostic_log_path
@@ -361,6 +391,14 @@ class CodingSession:
     def cancel(self) -> None:
         """Cancel the currently running agent turn, if any."""
         self._harness.cancel()
+
+    def queue_update_event(self) -> QueueUpdateEvent:
+        """Return the current queue state as an agent event."""
+        return self._harness.queue_update_event()
+
+    def clear_queued_messages(self) -> QueuedMessages:
+        """Clear queued steering and follow-up messages."""
+        return self._harness.clear_queues()
 
     def set_model(self, model: str) -> None:
         """Switch the active model for future turns in this process."""
@@ -619,18 +657,14 @@ class CodingSession:
         expanded_skill = expand_skill_command(text, self._skills)
         return expanded_skill if expanded_skill is not None else text
 
-    async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
+    async def prompt(
+        self,
+        content: str,
+        *,
+        streaming_behavior: StreamingBehavior | None = None,
+    ) -> AsyncIterator[AgentEvent]:
         """Append a user prompt, run the agent, and persist new messages."""
         context = self._diagnostic_context()
-        try:
-            await self._maybe_auto_compact()
-        except Exception as exc:
-            self._last_diagnostic_log_path = self._diagnostic_logger.log_exception(
-                context=context,
-                phase="auto_compact",
-                exc=exc,
-            )
-            raise
         try:
             expanded_content = self.expand_prompt_text(content)
         except ResourceError:
@@ -639,6 +673,27 @@ class CodingSession:
             self._last_diagnostic_log_path = self._diagnostic_logger.log_exception(
                 context=context,
                 phase="expand_prompt",
+                exc=exc,
+            )
+            raise
+
+        if self._harness.is_running:
+            if streaming_behavior == "steer":
+                yield self._harness.steer(expanded_content)
+                return
+            if streaming_behavior == "follow_up":
+                yield self._harness.follow_up(expanded_content)
+                return
+            raise RuntimeError(
+                "CodingSession is already running; pass streaming_behavior to queue a message."
+            )
+
+        try:
+            await self._maybe_auto_compact()
+        except Exception as exc:
+            self._last_diagnostic_log_path = self._diagnostic_logger.log_exception(
+                context=context,
+                phase="auto_compact",
                 exc=exc,
             )
             raise

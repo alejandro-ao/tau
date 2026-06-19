@@ -126,6 +126,8 @@ class CompletionActionTarget(Protocol):
 
     async def action_submit_prompt(self) -> None: ...
 
+    async def action_submit_follow_up(self) -> None: ...
+
 
 class SessionCompletionRecord(Protocol):
     """Session metadata needed to render resume picker completions."""
@@ -226,6 +228,10 @@ class PromptInput(TextArea):
         """Copy the selected transcript message."""
         self._completion_target().action_copy_selected_message()
 
+    async def action_submit_follow_up(self) -> None:
+        """Submit the prompt as an app-level follow-up."""
+        await self._completion_target().action_submit_follow_up()
+
     async def action_quit(self) -> None:
         """Quit the app through the app-level action."""
         await self.app.action_quit()
@@ -241,7 +247,11 @@ class PromptInput(TextArea):
     async def on_key(self, event: Key) -> None:
         """Route completion and submission keys before default input handling."""
         keybindings = self.tui_keybindings
-        if event.key == "enter":
+        if event.key == keybindings.queue_follow_up:
+            event.stop()
+            event.prevent_default()
+            await self._completion_target().action_submit_follow_up()
+        elif event.key == "enter":
             event.stop()
             event.prevent_default()
             await self._completion_target().action_submit_prompt()
@@ -1105,6 +1115,17 @@ class TauTuiApp(App[None]):
 
     async def action_submit_prompt(self) -> None:
         """Submit the current prompt text or slash command."""
+        await self._submit_prompt_from_editor(streaming_behavior="steer")
+
+    async def action_submit_follow_up(self) -> None:
+        """Submit the current prompt as a queued follow-up while running."""
+        await self._submit_prompt_from_editor(streaming_behavior="follow_up")
+
+    async def _submit_prompt_from_editor(
+        self,
+        *,
+        streaming_behavior: Literal["steer", "follow_up"],
+    ) -> None:
         prompt = self.query_one("#prompt", PromptInput)
         raw_text = prompt.text
         applied_completion = self._apply_selected_completion(raw_text)
@@ -1154,7 +1175,7 @@ class TauTuiApp(App[None]):
             return
 
         if self.state.running:
-            self._notify("Tau is already working. Press Escape to cancel.")
+            await self._queue_prompt(text, streaming_behavior=streaming_behavior)
             return
 
         self._submit_prompt(text)
@@ -1163,6 +1184,25 @@ class TauTuiApp(App[None]):
         """Add a prompt to the transcript and start the agent worker."""
         self._refresh()
         self._prompt_worker = self.run_worker(self._run_prompt(text), exclusive=True)
+
+    async def _queue_prompt(
+        self,
+        text: str,
+        *,
+        streaming_behavior: Literal["steer", "follow_up"],
+    ) -> None:
+        """Queue a prompt for the active agent worker."""
+        try:
+            async for event in self.session.prompt(text, streaming_behavior=streaming_behavior):
+                self.adapter.apply(event)
+        except Exception as exc:  # noqa: BLE001 - surface queueing failures in the TUI
+            self._notify(f"Could not queue message: {exc}", severity="error")
+            return
+        self._refresh()
+        if streaming_behavior == "follow_up":
+            self._notify("Queued follow-up message.")
+        else:
+            self._notify("Queued steering message.")
 
     async def _run_prompt(self, text: str) -> None:
         """Run one prompt and stream session events into the TUI state."""
@@ -1508,6 +1548,7 @@ class TauTuiApp(App[None]):
 
     def _refresh(self) -> None:
         theme = self.tui_settings.resolved_theme
+        self._sync_queue_state()
         sidebar = self.query_one("#sidebar", SessionSidebar)
         sidebar.update_from_session(self.session, theme=theme)
         compact_info = self.query_one("#compact-session-info", CompactSessionInfo)
@@ -1517,6 +1558,12 @@ class TauTuiApp(App[None]):
         self._sync_activity_indicator()
         status = self.query_one("#status", Static)
         status.update(self._status_text())
+
+    def _sync_queue_state(self) -> None:
+        queue_event = getattr(self.session, "queue_update_event", None)
+        if not callable(queue_event):
+            return
+        self.adapter.apply(queue_event())
 
     def _sync_activity_indicator(self) -> None:
         if self.state.running:
@@ -1541,9 +1588,11 @@ class TauTuiApp(App[None]):
         status.update(self._status_text())
 
     def _status_text(self) -> str:
+        queue_text = _queue_status_text(self.state)
         if not self.state.running:
-            return "Ready"
-        return ACTIVITY_FRAMES[self._activity_frame]
+            return f"Ready | queued: {queue_text}" if queue_text else "Ready"
+        status = ACTIVITY_FRAMES[self._activity_frame]
+        return f"{status} | queued: {queue_text}" if queue_text else status
 
     def _refresh_completions(self) -> None:
         suggestions = self.query_one("#autocomplete", Static)
@@ -1682,6 +1731,19 @@ def _theme_css_variables(theme: TuiTheme) -> dict[str, str]:
     }
 
 
+def _queue_status_text(state: TuiState) -> str:
+    parts: list[str] = []
+    steering_count = len(state.queued_steering)
+    follow_up_count = len(state.queued_follow_up)
+    if steering_count:
+        suffix = "" if steering_count == 1 else "s"
+        parts.append(f"{steering_count} steering message{suffix}")
+    if follow_up_count:
+        suffix = "" if follow_up_count == 1 else "s"
+        parts.append(f"{follow_up_count} follow-up message{suffix}")
+    return ", ".join(parts)
+
+
 def _app_bindings(keybindings: TuiKeybindings) -> list[Binding]:
     return [
         Binding(keybindings.cancel, "cancel", "Cancel"),
@@ -1692,6 +1754,12 @@ def _app_bindings(keybindings: TuiKeybindings) -> list[Binding]:
             keybindings.accept_completion,
             "accept_completion",
             "Complete",
+            priority=True,
+        ),
+        Binding(
+            keybindings.queue_follow_up,
+            "submit_follow_up",
+            "Follow-up",
             priority=True,
         ),
         Binding(
@@ -1719,6 +1787,7 @@ def _prompt_bindings(keybindings: TuiKeybindings) -> list[Binding]:
     return [
         Binding(keybindings.command_palette, "open_command_palette", show=False, priority=True),
         Binding(keybindings.session_picker, "open_session_picker", show=False, priority=True),
+        Binding(keybindings.queue_follow_up, "submit_follow_up", show=False, priority=True),
         Binding(keybindings.thinking_cycle, "cycle_thinking", show=False, priority=True),
         Binding(
             keybindings.toggle_tool_results,

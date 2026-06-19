@@ -10,6 +10,7 @@ from tau_agent import (
     ErrorEvent,
     MessageDeltaEvent,
     MessageEndEvent,
+    QueueUpdateEvent,
     ThinkingDeltaEvent,
     ToolCall,
     ToolExecutionEndEvent,
@@ -87,6 +88,7 @@ def test_events_have_stable_type_names() -> None:
 
     events = [
         MessageDeltaEvent(delta="hello"),
+        QueueUpdateEvent(steering=("adjust",), follow_up=()),
         ThinkingDeltaEvent(delta="reasoning"),
         MessageEndEvent(message=message),
         ToolExecutionStartEvent(tool_call=tool_call),
@@ -96,6 +98,7 @@ def test_events_have_stable_type_names() -> None:
 
     assert [event.type for event in events] == [
         "message_delta",
+        "queue_update",
         "thinking_delta",
         "message_end",
         "tool_execution_start",

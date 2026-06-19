@@ -8,6 +8,7 @@ from tau_agent import (
     AgentToolResult,
     AssistantMessage,
     ErrorEvent,
+    QueueUpdateEvent,
     RetryEvent,
     ThinkingDeltaEvent,
     ToolCall,
@@ -188,6 +189,150 @@ async def test_agent_loop_executes_tools_and_continues_until_no_tool_calls() -> 
     ]
     assert len(provider.calls) == 2
     assert provider.calls[1][2] == messages[:3]
+
+
+@pytest.mark.anyio
+async def test_agent_loop_injects_steering_after_tool_batch() -> None:
+    async def executor(arguments: Mapping[str, JSONValue]) -> AgentToolResult:
+        return AgentToolResult(
+            tool_call_id="call-1",
+            name="read",
+            ok=True,
+            content=f"contents of {arguments['path']}",
+        )
+
+    tool = AgentTool(
+        name="read",
+        description="Read a file.",
+        input_schema={"type": "object"},
+        executor=executor,
+    )
+    tool_call = ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
+    first_assistant = AssistantMessage(content="I'll read it.", tool_calls=[tool_call])
+    final_assistant = AssistantMessage(content="Updated plan.")
+    messages = [UserMessage(content="Read README.md")]
+    steering_queue = [UserMessage(content="Also summarize it")]
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=first_assistant, finish_reason="tool_calls"),
+            ],
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=final_assistant, finish_reason="stop"),
+            ],
+        ]
+    )
+
+    def get_steering_messages() -> tuple[UserMessage, ...]:
+        if not steering_queue:
+            return ()
+        return (steering_queue.pop(0),)
+
+    events = await _collect(
+        run_agent_loop(
+            provider=provider,
+            model="fake",
+            system="You are Tau.",
+            messages=messages,
+            tools=[tool],
+            get_steering_messages=get_steering_messages,
+            get_queue_update=lambda: QueueUpdateEvent(),
+        )
+    )
+
+    assert [event.type for event in events] == [
+        "agent_start",
+        "turn_start",
+        "message_start",
+        "message_end",
+        "tool_execution_start",
+        "tool_execution_end",
+        "turn_end",
+        "message_start",
+        "message_end",
+        "queue_update",
+        "turn_start",
+        "message_start",
+        "message_end",
+        "turn_end",
+        "agent_end",
+    ]
+    assert provider.calls[1][2] == messages[:4]
+    assert messages == [
+        UserMessage(content="Read README.md"),
+        first_assistant,
+        ToolResultMessage(
+            tool_call_id="call-1",
+            name="read",
+            content="contents of README.md",
+            ok=True,
+        ),
+        UserMessage(content="Also summarize it"),
+        final_assistant,
+    ]
+
+
+@pytest.mark.anyio
+async def test_agent_loop_injects_follow_up_only_when_run_would_stop() -> None:
+    first_assistant = AssistantMessage(content="Initial answer.")
+    final_assistant = AssistantMessage(content="Follow-up answer.")
+    messages = [UserMessage(content="Start")]
+    follow_up_queue = [UserMessage(content="One more thing")]
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=first_assistant, finish_reason="stop"),
+            ],
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=final_assistant, finish_reason="stop"),
+            ],
+        ]
+    )
+
+    def get_follow_up_messages() -> tuple[UserMessage, ...]:
+        if not follow_up_queue:
+            return ()
+        return (follow_up_queue.pop(0),)
+
+    events = await _collect(
+        run_agent_loop(
+            provider=provider,
+            model="fake",
+            system="You are Tau.",
+            messages=messages,
+            tools=[],
+            get_follow_up_messages=get_follow_up_messages,
+            get_queue_update=lambda: QueueUpdateEvent(),
+        )
+    )
+
+    assert [event.type for event in events] == [
+        "agent_start",
+        "turn_start",
+        "message_start",
+        "message_end",
+        "turn_end",
+        "message_start",
+        "message_end",
+        "queue_update",
+        "turn_start",
+        "message_start",
+        "message_end",
+        "turn_end",
+        "agent_end",
+    ]
+    assert len(provider.calls) == 2
+    assert provider.calls[1][2] == messages[:3]
+    assert messages == [
+        UserMessage(content="Start"),
+        first_assistant,
+        UserMessage(content="One more thing"),
+        final_assistant,
+    ]
 
 
 @pytest.mark.anyio

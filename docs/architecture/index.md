@@ -49,6 +49,7 @@ For the practical frontend contract, see [Building a Custom TUI](../custom-tui.m
 - [Phase 20.2: Thinking Mode Controls](phase-20-2-thinking-controls.md)
 - [Phase 20.3: Skill Invocation Reliability](phase-20-3-skill-invocation.md)
 - [Phase 20.4: Session Export and Visualization](phase-20-4-session-export.md)
+- [Queued Steering and Follow-ups](queued-steering-follow-ups.md)
 - [Phase 22: Compaction Replay Foundation](phase-22-compaction-foundation.md)
 
 More pages will be added here as each phase lands.

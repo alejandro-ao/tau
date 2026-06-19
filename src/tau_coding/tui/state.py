@@ -34,6 +34,8 @@ class TuiState:
     error: str | None = None
     show_tool_results: bool = False
     show_thinking: bool = False
+    queued_steering: tuple[str, ...] = ()
+    queued_follow_up: tuple[str, ...] = ()
     selected_item_index: int | None = None
 
     def add_item(
@@ -108,6 +110,16 @@ class TuiState:
         ):
             self.selected_item_index = None
         return self.show_thinking
+
+    def update_queue(self, *, steering: tuple[str, ...], follow_up: tuple[str, ...]) -> None:
+        """Replace visible queued-message state."""
+        self.queued_steering = steering
+        self.queued_follow_up = follow_up
+
+    @property
+    def queued_message_count(self) -> int:
+        """Return the total number of pending queued messages."""
+        return len(self.queued_steering) + len(self.queued_follow_up)
 
     def clear(self) -> None:
         """Clear visible transcript state without modifying durable session history."""

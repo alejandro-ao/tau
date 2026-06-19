@@ -17,6 +17,7 @@ from tau_agent import (
     AssistantMessage,
     ErrorEvent,
     MessageEndEvent,
+    QueueUpdateEvent,
     ToolCall,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
@@ -89,6 +90,9 @@ class FakeSession:
         self.new_session_count = 0
         self.prompt_texts: list[str] = []
         self.reload_count = 0
+        self.queued_steering_messages: tuple[str, ...] = ()
+        self.queued_follow_up_messages: tuple[str, ...] = ()
+        self.streaming_behaviors: list[str | None] = []
 
     def handle_command(self, text: str) -> CommandResult:
         if text == "/help":
@@ -154,8 +158,28 @@ class FakeSession:
         self.context_token_estimate = 0
         return "Started new session: new-session"
 
-    async def prompt(self, text: str) -> AsyncIterator[AgentEvent]:
+    def queue_update_event(self) -> QueueUpdateEvent:
+        return QueueUpdateEvent(
+            steering=self.queued_steering_messages,
+            follow_up=self.queued_follow_up_messages,
+        )
+
+    async def prompt(
+        self,
+        text: str,
+        *,
+        streaming_behavior: str | None = None,
+    ) -> AsyncIterator[AgentEvent]:
         self.prompt_texts.append(text)
+        self.streaming_behaviors.append(streaming_behavior)
+        if streaming_behavior == "steer":
+            self.queued_steering_messages = (*self.queued_steering_messages, text)
+            yield self.queue_update_event()
+            return
+        if streaming_behavior == "follow_up":
+            self.queued_follow_up_messages = (*self.queued_follow_up_messages, text)
+            yield self.queue_update_event()
+            return
         for event in self.events:
             yield event
 
@@ -1347,6 +1371,68 @@ async def test_tui_app_toggles_tool_results_from_keybinding() -> None:
 
     assert app.state.show_tool_results is False
     assert notifications == ["Tool results expanded.", "Tool results collapsed."]
+
+
+@pytest.mark.anyio
+async def test_tui_app_queues_steering_prompt_while_running() -> None:
+    session = FakeSession()
+    app = TauTuiApp(session)
+    notifications: list[str] = []
+
+    def fake_notify(message: str, **kwargs: object) -> None:
+        del kwargs
+        notifications.append(message)
+
+    app._notify = fake_notify  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        app.state.running = True
+        prompt = app.query_one("#prompt", TextArea)
+        prompt.text = "adjust course"
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        status = app.query_one("#status")
+        assert prompt.text == ""
+        assert session.prompt_texts == ["adjust course"]
+        assert session.streaming_behaviors == ["steer"]
+        assert app.state.queued_steering == ("adjust course",)
+        assert app.state.queued_follow_up == ()
+        assert "queued: 1 steering message" in str(status.render())
+
+    assert notifications == ["Queued steering message."]
+
+
+@pytest.mark.anyio
+async def test_tui_app_queues_follow_up_prompt_from_keybinding() -> None:
+    session = FakeSession()
+    app = TauTuiApp(session)
+    notifications: list[str] = []
+
+    def fake_notify(message: str, **kwargs: object) -> None:
+        del kwargs
+        notifications.append(message)
+
+    app._notify = fake_notify  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        app.state.running = True
+        prompt = app.query_one("#prompt", TextArea)
+        prompt.text = "after this"
+
+        await pilot.press("alt+enter")
+        await pilot.pause()
+
+        status = app.query_one("#status")
+        assert prompt.text == ""
+        assert session.prompt_texts == ["after this"]
+        assert session.streaming_behaviors == ["follow_up"]
+        assert app.state.queued_steering == ()
+        assert app.state.queued_follow_up == ("after this",)
+        assert "queued: 1 follow-up message" in str(status.render())
+
+    assert notifications == ["Queued follow-up message."]
 
 
 @pytest.mark.anyio
