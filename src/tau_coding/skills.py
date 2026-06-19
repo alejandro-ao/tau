@@ -1,5 +1,6 @@
 """Markdown skill loading and expansion."""
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,16 @@ class Skill:
     path: Path
     content: str
     description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SkillInvocation:
+    """Parsed expanded skill invocation message."""
+
+    name: str
+    location: str
+    content: str
+    additional_instructions: str | None = None
 
 
 def load_skills(paths: TauResourcePaths | None = None) -> list[Skill]:
@@ -106,6 +117,23 @@ def format_skill_invocation(
     if additional_instructions and additional_instructions.strip():
         return f"{skill_block}\n\n{additional_instructions.strip()}"
     return skill_block
+
+
+def parse_skill_invocation(text: str) -> SkillInvocation | None:
+    """Parse Tau's expanded skill invocation message format."""
+    match = re.match(
+        r'^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n</skill>(?:\n\n([\s\S]+))?$',
+        text,
+    )
+    if match is None:
+        return None
+    name, location, content, additional_instructions = match.groups()
+    return SkillInvocation(
+        name=name,
+        location=location,
+        content=content,
+        additional_instructions=additional_instructions,
+    )
 
 
 def build_skill_index(skills: Sequence[Skill]) -> str:

@@ -91,6 +91,7 @@ from tau_coding.skills import (
     format_skill_invocation,
     load_skills,
     load_skills_with_diagnostics,
+    parse_skill_invocation,
 )
 from tau_coding.system_prompt import (
     BuildSystemPromptOptions,
@@ -199,6 +200,7 @@ __all__ = [
     "summarize_messages_for_compaction",
     "expand_skill_command",
     "format_skill_invocation",
+    "parse_skill_invocation",
     "format_available_tools",
     "format_guidelines",
     "format_project_context",

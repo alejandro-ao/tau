@@ -29,7 +29,7 @@ from tau_coding.credentials import OAuthCredential
 from tau_coding.provider_config import OpenAICompatibleProviderConfig, ProviderSettings
 from tau_coding.session import ModelChoice
 from tau_coding.session_manager import CodingSessionRecord
-from tau_coding.skills import Skill
+from tau_coding.skills import Skill, format_skill_invocation
 from tau_coding.system_prompt import ProjectContextFile
 from tau_coding.tools import create_coding_tools
 from tau_coding.tui import app as tui_app
@@ -432,6 +432,42 @@ def test_thinking_chat_items_use_distinct_style() -> None:
     output = console.export_text(styles=True)
     assert "Hidden reasoning" in output
     assert "38;2;156;163;175" in output
+
+
+def test_skill_chat_items_use_distinct_compact_style() -> None:
+    console = Console(record=True, width=80)
+
+    console.print(render_chat_item(ChatItem(role="skill", text="Using skill: review")))
+
+    output = console.export_text(styles=True)
+    assert "Using skill: review" in output
+    assert "38;2;229;212;239" in output
+
+
+def test_tui_state_compacts_expanded_skill_messages() -> None:
+    skill = Skill(
+        name="review",
+        path=Path("/workspace/.tau/skills/review.md"),
+        content="# Review\nFull noisy instructions.",
+        description="Review code",
+    )
+    state = tui_app.TuiState()
+
+    state.load_messages(
+        [
+            UserMessage(
+                content=format_skill_invocation(
+                    skill,
+                    "check the auth flow",
+                )
+            )
+        ]
+    )
+
+    assert [(item.role, item.text) for item in state.items] == [
+        ("skill", "Using skill: review"),
+        ("user", "check the auth flow"),
+    ]
 
 
 def test_light_theme_tool_success_uses_dark_text_without_background() -> None:

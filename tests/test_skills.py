@@ -10,6 +10,7 @@ from tau_coding import (
     format_skill_invocation,
     load_skills,
     load_skills_with_diagnostics,
+    parse_skill_invocation,
 )
 from tau_coding.resources import ResourceError
 
@@ -160,6 +161,24 @@ def test_format_skill_invocation_without_extra_instructions(tmp_path: Path) -> N
         "Run pytest.\n"
         "</skill>"
     )
+
+
+def test_parse_skill_invocation_extracts_display_metadata(tmp_path: Path) -> None:
+    skill = Skill(
+        name="testing",
+        path=tmp_path / "skills" / "testing" / "SKILL.md",
+        content="# Testing\nRun pytest.",
+        description="Test Python code",
+    )
+    formatted = format_skill_invocation(skill, "add parser tests")
+
+    parsed = parse_skill_invocation(formatted)
+
+    assert parsed is not None
+    assert parsed.name == "testing"
+    assert parsed.location == str(skill.path)
+    assert "# Testing" in parsed.content
+    assert parsed.additional_instructions == "add parser tests"
 
 
 def test_expand_skill_command_returns_none_for_normal_prompt(tmp_path: Path) -> None:

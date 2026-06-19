@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from tau_agent import (
     AgentEndEvent,
     AgentStartEvent,
@@ -16,6 +18,7 @@ from tau_agent import (
     ToolExecutionUpdateEvent,
     UserMessage,
 )
+from tau_coding.skills import Skill, format_skill_invocation
 from tau_coding.tui import TuiEventAdapter, TuiState
 from tau_coding.tui.state import format_tool_call_block, format_tool_result_block
 
@@ -58,6 +61,28 @@ def test_tui_adapter_builds_user_items_from_streamed_messages() -> None:
     assert [(item.role, item.text) for item in state.items] == [("user", "Hello Tau")]
 
 
+def test_tui_adapter_compacts_streamed_skill_invocations() -> None:
+    state = TuiState()
+    adapter = TuiEventAdapter(state)
+    skill = Skill(
+        name="review",
+        path=Path("/workspace/.tau/skills/review.md"),
+        content="# Review\nFull noisy instructions.",
+        description="Review code",
+    )
+
+    adapter.apply(
+        MessageEndEvent(
+            message=UserMessage(content=format_skill_invocation(skill, "check the auth flow"))
+        )
+    )
+
+    assert [(item.role, item.text) for item in state.items] == [
+        ("skill", "Using skill: review"),
+        ("user", "check the auth flow"),
+    ]
+
+
 def test_tui_adapter_groups_thinking_deltas_separately() -> None:
     state = TuiState()
     adapter = TuiEventAdapter(state)
@@ -65,11 +90,8 @@ def test_tui_adapter_groups_thinking_deltas_separately() -> None:
     adapter.apply(ThinkingDeltaEvent(delta="hidden "))
     adapter.apply(ThinkingDeltaEvent(delta="reasoning"))
 
-    assert [(item.role, item.text) for item in state.items] == [
-        ("thinking", "hidden reasoning")
-    ]
+    assert [(item.role, item.text) for item in state.items] == [("thinking", "hidden reasoning")]
     assert state.show_thinking is False
-
 
 
 def test_tui_adapter_flushes_assistant_buffer_before_tool_events() -> None:
@@ -210,15 +232,7 @@ def test_tui_adapter_renders_live_edit_patch() -> None:
         (
             "tool",
             "✓ edit",
-            "✓ edit\n"
-            "Successfully replaced 1 block.\n"
-            "\n"
-            "Patch:\n"
-            "--- a.py\n"
-            "+++ a.py\n"
-            "@@\n"
-            "-old\n"
-            "+new",
+            "✓ edit\nSuccessfully replaced 1 block.\n\nPatch:\n--- a.py\n+++ a.py\n@@\n-old\n+new",
         )
     ]
 

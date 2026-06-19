@@ -7,8 +7,9 @@ from typing import Literal
 from tau_agent.messages import AgentMessage
 from tau_agent.tools import AgentToolResult, ToolCall
 from tau_agent.types import JSONValue
+from tau_coding.skills import parse_skill_invocation
 
-ChatItemRole = Literal["user", "assistant", "tool", "error", "status", "thinking"]
+ChatItemRole = Literal["user", "assistant", "tool", "error", "status", "thinking", "skill"]
 TOOL_RESULT_PREVIEW_LINES = 8
 TOOL_PATCH_PREVIEW_LINES = 32
 TOOL_RESULT_PREVIEW_CHARS = 2_000
@@ -62,6 +63,16 @@ class TuiState:
             format_tool_call_block(tool_call),
             tool_call_id=tool_call.id,
         )
+
+    def add_user_message(self, content: str) -> None:
+        """Append a user-authored message, compacting skill invocations for display."""
+        skill_invocation = parse_skill_invocation(content)
+        if skill_invocation is None:
+            self.add_item("user", content)
+            return
+        self.add_item("skill", f"Using skill: {skill_invocation.name}")
+        if skill_invocation.additional_instructions:
+            self.add_item("user", skill_invocation.additional_instructions)
 
     def add_thinking_delta(self, delta: str) -> None:
         """Append a thinking/reasoning fragment to the current thinking block."""
@@ -119,7 +130,7 @@ class TuiState:
         """Populate the transcript from restored session messages."""
         for message in messages:
             if message.role == "user":
-                self.add_item("user", message.content)
+                self.add_user_message(message.content)
             elif message.role == "assistant":
                 if message.content:
                     self.add_item("assistant", message.content)
