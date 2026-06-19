@@ -775,6 +775,17 @@ class TauTuiApp(App[None]):
         color: $tau-muted-text;
     }
 
+    #shortcut-hints {
+        height: 1;
+        padding: 0 1;
+        background: $tau-chrome-background;
+        color: $tau-muted-text;
+    }
+
+    TauTuiApp.-compact-footer #shortcut-hints {
+        display: none;
+    }
+
     #status {
         height: 1;
         padding: 0 1;
@@ -1089,6 +1100,7 @@ class TauTuiApp(App[None]):
                 )
                 yield CompactSessionInfo(id="compact-session-info")
                 yield Static("", id="autocomplete")
+        yield Static("", id="shortcut-hints")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -1594,6 +1606,7 @@ class TauTuiApp(App[None]):
         self._sync_activity_indicator()
         status = self.query_one("#status", Static)
         status.update(self._status_text())
+        self._refresh_shortcut_hints()
 
     def _sync_queue_state(self) -> None:
         queue_event = getattr(self.session, "queue_update_event", None)
@@ -1639,10 +1652,12 @@ class TauTuiApp(App[None]):
                 theme=self.tui_settings.resolved_theme,
             )
         )
+        self._refresh_shortcut_hints()
 
     def _update_responsive_layout(self, width: int, height: int) -> None:
         show_sidebar = width >= SIDEBAR_MIN_WIDTH and height >= SIDEBAR_MIN_HEIGHT
         self.set_class(not show_sidebar, "-hide-sidebar")
+        self.set_class(height < 22, "-compact-footer")
 
     def _build_completion_state(self, text: str) -> CompletionState:
         registry = _session_command_registry(self.session)
@@ -1655,6 +1670,16 @@ class TauTuiApp(App[None]):
             provider_names=self.session.available_providers,
             thinking_levels=getattr(self.session, "available_thinking_levels", ()),
             session_options=_session_options(self.session),
+        )
+
+    def _refresh_shortcut_hints(self) -> None:
+        hints = self.query_one("#shortcut-hints", Static)
+        hints.update(
+            _shortcut_hint_text(
+                self.tui_settings.keybindings,
+                self.state,
+                self._completion_state,
+            )
         )
 
 
@@ -1778,6 +1803,52 @@ def _queue_status_text(state: TuiState) -> str:
         suffix = "" if follow_up_count == 1 else "s"
         parts.append(f"{follow_up_count} follow-up message{suffix}")
     return ", ".join(parts)
+
+
+def _shortcut_hint_text(
+    keybindings: TuiKeybindings,
+    state: TuiState,
+    completion_state: CompletionState,
+) -> str:
+    if completion_state.items:
+        return _join_shortcut_hints(
+            (
+                f"{_key_hint(keybindings.accept_completion)}/Enter complete",
+                f"{_key_hint(keybindings.completion_previous)}/"
+                f"{_key_hint(keybindings.completion_next)} choose",
+                f"{_key_hint(keybindings.cancel)} close",
+            )
+        )
+    if state.running:
+        return _join_shortcut_hints(
+            (
+                "Enter steer",
+                f"{_key_hint(keybindings.queue_follow_up)} follow-up",
+                f"{_key_hint(keybindings.cancel)} cancel",
+                f"{_key_hint(keybindings.toggle_thinking)} thinking",
+                f"{_key_hint(keybindings.toggle_tool_results)} tools",
+                f"{_key_hint(keybindings.copy_message)} copy",
+            )
+        )
+    return _join_shortcut_hints(
+        (
+            "Enter submit",
+            "Shift+Enter newline",
+            f"{_key_hint(keybindings.command_palette)} commands",
+            f"{_key_hint(keybindings.session_picker)} sessions",
+            f"{_key_hint(keybindings.thinking_cycle)} thinking",
+            f"{_key_hint(keybindings.copy_message)} copy",
+            f"{_key_hint(keybindings.quit)} quit",
+        )
+    )
+
+
+def _join_shortcut_hints(parts: Sequence[str]) -> str:
+    return " | ".join(parts)
+
+
+def _key_hint(key: str) -> str:
+    return "+".join(part.capitalize() for part in key.split("+"))
 
 
 def _app_bindings(keybindings: TuiKeybindings) -> list[Binding]:

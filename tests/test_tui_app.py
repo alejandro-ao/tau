@@ -527,6 +527,59 @@ async def test_tui_app_mounts_sidebar_and_transcript() -> None:
 
 
 @pytest.mark.anyio
+async def test_tui_app_shows_footer_shortcut_hints() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        hints = app.query_one("#shortcut-hints")
+
+        assert str(hints.render()) == (
+            "Enter submit | Shift+Enter newline | Ctrl+K commands | Ctrl+R sessions | "
+            "Shift+Tab thinking | Ctrl+C copy | Ctrl+D quit"
+        )
+
+
+@pytest.mark.anyio
+async def test_tui_app_footer_hints_update_for_completions() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt")
+        prompt.value = "/st"
+        app._completion_state = app._build_completion_state(prompt.value)
+        app._refresh_completions()
+
+        hints = app.query_one("#shortcut-hints")
+        assert str(hints.render()) == "Tab/Enter complete | Up/Down choose | Escape close"
+
+
+@pytest.mark.anyio
+async def test_tui_app_footer_hints_update_while_running() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        app.adapter.apply(AgentStartEvent())
+        app._refresh()
+
+        hints = app.query_one("#shortcut-hints")
+        assert str(hints.render()) == (
+            "Enter steer | Alt+Enter follow-up | Escape cancel | Ctrl+T thinking | "
+            "Ctrl+O tools | Ctrl+C copy"
+        )
+
+
+@pytest.mark.anyio
+async def test_tui_app_hides_footer_hints_on_short_windows() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 18)):
+        hints = app.query_one("#shortcut-hints")
+
+        assert hints.display is False
+        assert app.has_class("-compact-footer")
+
+
+@pytest.mark.anyio
 async def test_tui_prompt_grows_to_six_lines_then_scrolls() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1938,9 +1991,7 @@ async def test_run_tui_app_opens_when_provider_login_is_missing(
     monkeypatch.setattr(
         tui_app,
         "create_model_provider",
-        lambda provider, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("Missing provider API key.")
-        ),
+        lambda provider, **kwargs: (_ for _ in ()).throw(RuntimeError("Missing provider API key.")),
     )
     monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
     monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
