@@ -417,14 +417,31 @@ class SessionPickerScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class CommandOutputScroll(VerticalScroll):
+    """Scrollable command output area with deterministic arrow-key scrolling."""
+
+    BINDINGS: ClassVar[list[BindingEntry]] = [
+        Binding("up", "scroll_up", "Scroll up", show=False, priority=True),
+        Binding("down", "scroll_down", "Scroll down", show=False, priority=True),
+    ]
+
+    def action_scroll_up(self) -> None:
+        """Scroll command output up."""
+        self.scroll_y = max(0, self.scroll_y - 1)
+
+    def action_scroll_down(self) -> None:
+        """Scroll command output down."""
+        self.scroll_y = min(self.max_scroll_y, self.scroll_y + 1)
+
+
 class CommandOutputScreen(ModalScreen[None]):
     """Dismissible modal for slash-command output."""
 
     BINDINGS: ClassVar[list[BindingEntry]] = [
         Binding("escape", "close", "Close"),
         Binding("enter", "close", "Close"),
-        Binding("up", "scroll_up", "Scroll up", show=False),
-        Binding("down", "scroll_down", "Scroll down", show=False),
+        Binding("up", "scroll_up", "Scroll up", show=False, priority=True),
+        Binding("down", "scroll_down", "Scroll down", show=False, priority=True),
     ]
 
     def __init__(self, title: str, message: str, *, theme: TuiTheme) -> None:
@@ -437,7 +454,7 @@ class CommandOutputScreen(ModalScreen[None]):
         """Compose command output."""
         with Vertical(id="command-output"):
             yield Static(self.title_text, id="command-output-title")
-            with VerticalScroll(id="command-output-scroll"):
+            with CommandOutputScroll(id="command-output-scroll"):
                 yield Static(self.message, id="command-output-body", markup=False)
             yield Static("Enter or Escape closes", id="command-output-help")
 
@@ -460,13 +477,11 @@ class CommandOutputScreen(ModalScreen[None]):
 
     def action_scroll_up(self) -> None:
         """Scroll command output up."""
-        scroll = self.query_one("#command-output-scroll", VerticalScroll)
-        scroll.scroll_y = max(0, scroll.scroll_y - 1)
+        self.query_one("#command-output-scroll", CommandOutputScroll).action_scroll_up()
 
     def action_scroll_down(self) -> None:
         """Scroll command output down."""
-        scroll = self.query_one("#command-output-scroll", VerticalScroll)
-        scroll.scroll_y = min(scroll.max_scroll_y, scroll.scroll_y + 1)
+        self.query_one("#command-output-scroll", CommandOutputScroll).action_scroll_down()
 
 
 class LoginProviderPickerScreen(ModalScreen[str | None]):
@@ -1554,6 +1569,9 @@ class TauTuiApp(App[None]):
 
     def action_completion_next(self) -> None:
         """Select the next prompt completion or move down in the prompt."""
+        if isinstance(self.screen, CommandOutputScreen):
+            self.screen.action_scroll_down()
+            return
         if isinstance(
             self.screen,
             SessionPickerScreen | LoginProviderPickerScreen | ThemePickerScreen | ModelPickerScreen,
@@ -1568,6 +1586,9 @@ class TauTuiApp(App[None]):
 
     def action_completion_previous(self) -> None:
         """Select the previous prompt completion or move up in the prompt."""
+        if isinstance(self.screen, CommandOutputScreen):
+            self.screen.action_scroll_up()
+            return
         if isinstance(
             self.screen,
             SessionPickerScreen | LoginProviderPickerScreen | ThemePickerScreen | ModelPickerScreen,

@@ -1401,9 +1401,11 @@ async def test_tui_app_command_modal_arrow_keys_scroll_output() -> None:
         scroll = app.screen.query_one("#command-output-scroll", VerticalScroll)
         await pilot.pause()
         assert scroll.max_scroll_y > 0
+        assert app.screen.focused is scroll
         assert scroll.scroll_y == 0
 
-        app.screen.action_scroll_down()
+        await pilot.press("down")
+        await pilot.pause()
 
         assert scroll.scroll_y > 0
 
