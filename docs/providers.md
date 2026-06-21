@@ -126,14 +126,14 @@ Inside the TUI:
 /model
 /model qwen
 /login
-/reload
 ```
 
 `/model` opens the interactive model picker. The picker includes models from
 configured providers, so selecting a model can also switch the active runtime
-provider. `/login` adds or refreshes a built-in provider, including
-OAuth-backed providers such as `openai-codex`, and `/reload` refreshes provider
-settings for future command use.
+provider. The model flow refreshes provider settings before it validates or
+shows choices. `/login` adds or refreshes a built-in provider, including
+OAuth-backed providers such as `openai-codex`, and refreshes provider settings
+after saving credentials.
 
 When Tau loads `~/.tau/providers.json`, it merges the current built-in model
 catalog into built-in provider entries such as Hugging Face. Custom models and

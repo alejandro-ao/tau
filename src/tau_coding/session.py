@@ -60,6 +60,7 @@ from tau_coding.provider_config import (
     save_provider_settings,
 )
 from tau_coding.provider_runtime import ClosableModelProvider, create_model_provider
+from tau_coding.reload import CodingReloadSummary, ReloadCategorySummary
 from tau_coding.resources import (
     ResourceDiagnostic,
     ResourceError,
@@ -709,28 +710,78 @@ class CodingSession:
         self._harness.config.provider = provider
         self._runtime_provider_config = provider_config
 
-    def reload(self) -> None:
-        """Reload Tau-owned resources and provider settings for future turns."""
+    def reload(self) -> CodingReloadSummary:
+        """Reload local coding resources and project context for future turns."""
+        before_skills = _skill_signatures(self._skills)
+        before_prompt_templates = _prompt_template_signatures(self._prompt_templates)
+        before_context_files = _context_file_signatures(self._context_files)
+        before_diagnostics = _diagnostic_signatures(self._resource_diagnostics)
+        before_system_prompt_inputs = _system_prompt_resource_signatures(
+            skills=self._skills,
+            context_files=self._context_files,
+        )
+
         resources = _load_session_resources(self._resource_paths, self._config.context_files)
+
+        after_skills = _skill_signatures(resources.skills)
+        after_prompt_templates = _prompt_template_signatures(resources.prompt_templates)
+        after_context_files = _context_file_signatures(resources.context_files)
+        after_diagnostics = _diagnostic_signatures(resources.diagnostics)
+        after_system_prompt_inputs = _system_prompt_resource_signatures(
+            skills=resources.skills,
+            context_files=resources.context_files,
+        )
+
+        rebuilt_system_prompt: str | None = None
+        system_prompt_rebuilt = False
+        if (
+            self._config.system is None
+            and before_system_prompt_inputs != after_system_prompt_inputs
+        ):
+            rebuilt_system_prompt = build_system_prompt(
+                BuildSystemPromptOptions(
+                    cwd=self._config.cwd,
+                    tools=self._harness.config.tools,
+                    skills=resources.skills,
+                    custom_prompt=self._config.custom_system_prompt,
+                    append_system_prompt=self._config.append_system_prompt,
+                    context_files=resources.context_files,
+                )
+            )
+            system_prompt_rebuilt = True
+
         self._skills = resources.skills
         self._prompt_templates = resources.prompt_templates
         self._context_files = resources.context_files
         self._resource_diagnostics = resources.diagnostics
-        if self._provider_settings is not None:
-            self._provider_settings = load_provider_settings()
+        if rebuilt_system_prompt is not None:
+            self._harness.config.system = rebuilt_system_prompt
+
+        return CodingReloadSummary(
+            skills=_category_summary(before_skills, after_skills),
+            prompt_templates=_category_summary(
+                before_prompt_templates,
+                after_prompt_templates,
+            ),
+            context_files=_category_summary(before_context_files, after_context_files),
+            diagnostics=_category_summary(before_diagnostics, after_diagnostics),
+            system_prompt_rebuilt=system_prompt_rebuilt,
+        )
+
+    def reload_provider_settings(self) -> None:
+        """Reload provider settings for login and model-selection flows."""
+        if self._provider_settings is None:
+            return
+        previous_settings = self._provider_settings
+        previous_thinking_level = self._thinking_level
+        self._provider_settings = load_provider_settings(self._resource_paths.paths)
+        try:
             self._sync_thinking_level_to_active_model()
             self._refresh_runtime_provider()
-        if self._config.system is None:
-            self._harness.config.system = build_system_prompt(
-                BuildSystemPromptOptions(
-                    cwd=self._config.cwd,
-                    tools=self._harness.config.tools,
-                    skills=self._skills,
-                    custom_prompt=self._config.custom_system_prompt,
-                    append_system_prompt=self._config.append_system_prompt,
-                    context_files=self._context_files,
-                )
-            )
+        except ProviderConfigError:
+            self._provider_settings = previous_settings
+            self._thinking_level = previous_thinking_level
+            raise
 
     async def resume(self, session_id: str) -> str:
         """Replace this session's active state with another indexed session."""
@@ -1163,10 +1214,10 @@ def _messages_after_entry_on_active_path(
     except StopIteration:
         return ()
     return tuple(
-        entry.message
-        for entry in active_path[target_index + 1 :]
-        if entry.type == "message"
+        entry.message for entry in active_path[target_index + 1 :] if entry.type == "message"
     )
+
+
 def _storage_path(storage: SessionStorage) -> Path | None:
     path = getattr(storage, "path", None)
     return path if isinstance(path, Path) else None
@@ -1254,6 +1305,65 @@ def parse_terminal_command(text: str) -> TerminalCommandRequest | None:
             return None
         return TerminalCommandRequest(command=command, add_to_context=True)
     return None
+
+
+def _category_summary(
+    before: tuple[tuple[object, ...], ...],
+    after: tuple[tuple[object, ...], ...],
+) -> ReloadCategorySummary:
+    return ReloadCategorySummary(
+        before=len(before),
+        after=len(after),
+        changed=before != after,
+    )
+
+
+def _skill_signatures(skills: tuple[Skill, ...]) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        (skill.name, str(skill.path), skill.description, skill.content) for skill in skills
+    )
+
+
+def _prompt_template_signatures(
+    prompt_templates: tuple[PromptTemplate, ...],
+) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        (template.name, str(template.path), template.description, template.content)
+        for template in prompt_templates
+    )
+
+
+def _context_file_signatures(
+    context_files: tuple[ProjectContextFile, ...],
+) -> tuple[tuple[object, ...], ...]:
+    return tuple((context_file.path, context_file.content) for context_file in context_files)
+
+
+def _diagnostic_signatures(
+    diagnostics: tuple[ResourceDiagnostic, ...],
+) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        (
+            diagnostic.kind,
+            diagnostic.message,
+            str(diagnostic.path) if diagnostic.path is not None else None,
+            diagnostic.name,
+            diagnostic.severity,
+        )
+        for diagnostic in diagnostics
+    )
+
+
+def _system_prompt_resource_signatures(
+    *,
+    skills: tuple[Skill, ...],
+    context_files: tuple[ProjectContextFile, ...],
+) -> tuple[tuple[object, ...], tuple[object, ...]]:
+    prompt_skills = tuple(
+        (skill.name, str(skill.path), skill.description)
+        for skill in sorted(skills, key=lambda item: item.name)
+    )
+    return (prompt_skills, _context_file_signatures(context_files))
 
 
 def _load_session_resources(

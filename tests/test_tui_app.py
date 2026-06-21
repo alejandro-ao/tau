@@ -104,6 +104,7 @@ class FakeSession:
         self.new_session_count = 0
         self.prompt_texts: list[str] = []
         self.reload_count = 0
+        self.provider_reload_count = 0
         self.queued_steering_messages: tuple[str, ...] = ()
         self.queued_follow_up_messages: tuple[str, ...] = ()
         self.streaming_behaviors: list[str | None] = []
@@ -187,6 +188,9 @@ class FakeSession:
 
     def reload(self) -> None:
         self.reload_count += 1
+
+    def reload_provider_settings(self) -> None:
+        self.provider_reload_count += 1
 
     async def set_thinking_level(self, level: str) -> str:
         self.thinking_level = level
@@ -739,12 +743,15 @@ async def test_tui_app_highlights_prompt_shell_mode() -> None:
         await pilot.pause()
 
         assert prompt.has_class("-shell-mode")
-        assert _activity_prompt_border_color(
-            app.tui_settings.resolved_theme,
-            frame=0,
-            running=False,
-            shell_mode=prompt.has_class("-shell-mode"),
-        ) == app.tui_settings.resolved_theme.accent
+        assert (
+            _activity_prompt_border_color(
+                app.tui_settings.resolved_theme,
+                frame=0,
+                running=False,
+                shell_mode=prompt.has_class("-shell-mode"),
+            )
+            == app.tui_settings.resolved_theme.accent
+        )
         assert prompt.get_line(0).spans[-1].start == 0
         assert prompt.get_line(0).spans[-1].end == 2
         assert str(prompt.get_line(0).spans[-1].style) == app.tui_settings.resolved_theme.accent
@@ -1893,7 +1900,8 @@ async def test_tui_login_saves_provider_key(
         await pilot.press("enter")
         await pilot.pause()
 
-    assert session.reload_count == 1
+    assert session.reload_count == 0
+    assert session.provider_reload_count == 1
     assert session.provider_name == "openai"
     assert session.prompt_texts == []
     assert all(item.text != "stored-openai-key" for item in app.state.items)
@@ -1932,7 +1940,8 @@ async def test_tui_login_openai_codex_saves_oauth_credentials(
         )
         await pilot.pause()
 
-    assert session.reload_count == 1
+    assert session.reload_count == 0
+    assert session.provider_reload_count == 1
     assert session.provider_name == "openai-codex"
     assert all("access-token" not in item.text for item in app.state.items)
     credentials = (tmp_path / ".tau" / "credentials.json").read_text(encoding="utf-8")

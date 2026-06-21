@@ -985,9 +985,7 @@ class ModelPickerScreen(ModalScreen[ModelChoice | None]):
         """Compose the model picker."""
         with Vertical(id="model-picker"):
             title = (
-                f"Model: {self.provider_name}"
-                if self.picker_kind == "model"
-                else "Scoped models"
+                f"Model: {self.provider_name}" if self.picker_kind == "model" else "Scoped models"
             )
             yield Static(title, id="model-picker-title")
             yield Static("", id="model-picker-tabs")
@@ -1149,7 +1147,10 @@ class ModelPickerScreen(ModalScreen[ModelChoice | None]):
             help_text = (
                 "all models: no matching models - Tab switches to scoped models"
                 if not self.visible_choices
-                else f"All models - Enter selects active model - Tab switches tabs - {scope_count} scoped"
+                else (
+                    "All models - Enter selects active model - Tab switches tabs - "
+                    f"{scope_count} scoped"
+                )
             )
         else:
             tabs.update("Tabs: ○ All models  ● Scoped models")
@@ -1925,7 +1926,7 @@ class TauTuiApp(App[None]):
             | TreePickerScreen
             | LoginMethodPickerScreen
             | LoginProviderPickerScreen
-            | ThemePickerScreen
+            | ThemePickerScreen,
         ):
             self.screen.action_select_cursor()
             return
@@ -2198,7 +2199,7 @@ class TauTuiApp(App[None]):
             settings = load_provider_settings()
             provider = provider_config_from_catalog_entry(entry.name)
             save_provider_settings(upsert_provider(settings, provider, set_default=True))
-            self.session.reload()
+            self.session.reload_provider_settings()
             self.session.set_provider(entry.name)
         except Exception as exc:  # noqa: BLE001 - surface login failures in the TUI
             self._notify(f"Could not save login: {exc}", severity="error")
@@ -2218,7 +2219,7 @@ class TauTuiApp(App[None]):
             settings = load_provider_settings()
             provider = provider_config_from_catalog_entry(entry.name)
             save_provider_settings(upsert_provider(settings, provider, set_default=True))
-            self.session.reload()
+            self.session.reload_provider_settings()
             self.session.set_provider(entry.name)
         except Exception as exc:  # noqa: BLE001 - surface login failures in the TUI
             self._notify(f"Could not save login: {exc}", severity="error")

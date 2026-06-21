@@ -953,16 +953,118 @@ async def test_session_reload_refreshes_resources_and_system_prompt(tmp_path: Pa
     )
     (tmp_path / "AGENTS.md").write_text("Reloaded project rules.", encoding="utf-8")
 
+    entries_before = await storage.read_all()
     result = session.handle_command("/reload")
+    entries_after = await storage.read_all()
     _events = await _collect_session_events(session.prompt("Hello"))
 
     assert result.message is not None
-    assert "Skills: 1" in result.message
-    assert "Context files: 1" in result.message
+    assert "Reloaded local coding resources and project context." in result.message
+    assert "Skills: 1 total (changed, +1)" in result.message
+    assert "Project context files: 1 total (changed, +1)" in result.message
+    assert "Next-turn system prompt: rebuilt" in result.message
+    assert "Not refreshed by /reload" in result.message
+    assert entries_after == entries_before
     assert [skill.name for skill in session.skills] == ["testing"]
     assert [Path(context_file.path).name for context_file in session.context_files] == ["AGENTS.md"]
     assert "Reloaded project rules." in provider.calls[0][1]
     assert "<name>testing</name>" in provider.calls[0][1]
+
+
+@pytest.mark.anyio
+async def test_session_reload_skips_provider_settings_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fail_load_provider_settings(paths: TauPaths | None = None) -> ProviderSettings:
+        del paths
+        raise AssertionError("/reload should not refresh provider settings")
+
+    monkeypatch.setattr(
+        coding_session_module,
+        "load_provider_settings",
+        fail_load_provider_settings,
+    )
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            storage=JsonlSessionStorage(tmp_path / "session.jsonl"),
+            cwd=tmp_path,
+            provider_settings=ProviderSettings(
+                providers=(OpenAICompatibleProviderConfig(name="openai"),)
+            ),
+        )
+    )
+
+    result = session.handle_command("/reload")
+
+    assert result.message is not None
+    assert "Provider config:" in result.message
+    assert "Not refreshed by /reload" in result.message
+
+
+@pytest.mark.anyio
+async def test_session_reload_leaves_system_prompt_when_inputs_are_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            storage=storage,
+            cwd=tmp_path,
+        )
+    )
+
+    def fail_build_system_prompt(options: object) -> str:
+        del options
+        raise AssertionError("system prompt should not be rebuilt")
+
+    monkeypatch.setattr(
+        coding_session_module,
+        "build_system_prompt",
+        fail_build_system_prompt,
+    )
+
+    result = session.handle_command("/reload")
+
+    assert result.message is not None
+    assert "Next-turn system prompt: unchanged" in result.message
+
+
+@pytest.mark.anyio
+async def test_session_provider_settings_reload_uses_session_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tau_paths = TauPaths(home=tmp_path / "tau-home", agents_home=tmp_path / "agents-home")
+    seen_paths: list[TauPaths | None] = []
+
+    def load_provider_settings(paths: TauPaths | None = None) -> ProviderSettings:
+        seen_paths.append(paths)
+        return ProviderSettings(providers=(OpenAICompatibleProviderConfig(name="openai"),))
+
+    monkeypatch.setattr(coding_session_module, "load_provider_settings", load_provider_settings)
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=JsonlSessionStorage(tmp_path / "provider-reload-session.jsonl"),
+            cwd=tmp_path,
+            provider_settings=ProviderSettings(
+                providers=(OpenAICompatibleProviderConfig(name="openai"),)
+            ),
+            resource_paths=TauResourcePaths(root=tau_paths.home, paths=tau_paths),
+        )
+    )
+
+    session.reload_provider_settings()
+
+    assert seen_paths == [tau_paths]
 
 
 @pytest.mark.anyio

@@ -131,8 +131,10 @@ process when the model is known for the active provider.
 
 In the TUI, `/model` opens an interactive picker. The picker can include models
 from every configured provider, so selecting a model can switch the active
-provider behind the scenes. `/login` is the TUI path for adding or refreshing a
-built-in provider.
+provider behind the scenes. The model command refreshes provider settings before
+validating or showing choices. `/login` is the TUI path for adding or refreshing
+a built-in provider, and it refreshes provider settings after credentials are
+saved.
 
 The same provider settings file can also store scoped models:
 

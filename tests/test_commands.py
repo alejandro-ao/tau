@@ -2,7 +2,7 @@ from pathlib import Path
 
 from tau_coding.commands import CommandRegistry, SlashCommand, create_default_command_registry
 from tau_coding.paths import TauPaths
-from tau_coding.resources import ResourceDiagnostic
+from tau_coding.reload import CodingReloadSummary, ReloadCategorySummary
 from tau_coding.session import ModelChoice
 from tau_coding.session_manager import SessionManager
 from tau_coding.skills import Skill
@@ -44,6 +44,7 @@ class FakeSession:
         self.session_id = "session-1"
         self.session_manager: SessionManager | None = manager
         self.reload_called = False
+        self.provider_reload_called = False
 
     def set_model(self, model: str) -> None:
         self.model = model
@@ -53,8 +54,30 @@ class FakeSession:
         self.model = "local-model"
         self.available_models = ("local-model",)
 
-    def reload(self) -> None:
+    def reload(self) -> CodingReloadSummary:
         self.reload_called = True
+        return CodingReloadSummary(
+            skills=ReloadCategorySummary(before=0, after=len(self.skills), changed=True),
+            prompt_templates=ReloadCategorySummary(
+                before=0,
+                after=len(self.prompt_templates),
+                changed=False,
+            ),
+            context_files=ReloadCategorySummary(
+                before=0,
+                after=len(self.context_files),
+                changed=True,
+            ),
+            diagnostics=ReloadCategorySummary(
+                before=0,
+                after=len(self.resource_diagnostics),
+                changed=False,
+            ),
+            system_prompt_rebuilt=True,
+        )
+
+    def reload_provider_settings(self) -> None:
+        self.provider_reload_called = True
 
 
 def test_registry_ignores_ordinary_prompts_and_skill_expansion(tmp_path: Path) -> None:
@@ -154,7 +177,10 @@ def test_session_command_includes_session_details(tmp_path: Path) -> None:
     assert "Auto compact threshold: 200" in result.message
     assert "Resource diagnostics: 0" in result.message
     assert "Session: session-1" in result.message
-    assert create_default_command_registry().execute(FakeSession(tmp_path), "/status").message == "Unknown command: /status"
+    assert (
+        create_default_command_registry().execute(FakeSession(tmp_path), "/status").message
+        == "Unknown command: /status"
+    )
 
 
 def test_hotkeys_command_lists_common_tui_shortcuts(tmp_path: Path) -> None:
@@ -177,6 +203,7 @@ def test_model_command_requests_picker_and_switches_models(tmp_path: Path) -> No
     assert list_result.model_picker_requested is True
     assert switch_result.message == "Current model: other-model"
     assert session.model == "other-model"
+    assert session.provider_reload_called is True
 
 
 def test_scoped_models_command_requests_scoped_picker(tmp_path: Path) -> None:
@@ -188,6 +215,7 @@ def test_scoped_models_command_requests_scoped_picker(tmp_path: Path) -> None:
 
     assert dashed_result.scoped_models_picker_requested is True
     assert pi_style_result.scoped_models_picker_requested is True
+    assert session.provider_reload_called is True
 
 
 def test_model_command_rejects_unknown_model(tmp_path: Path) -> None:
@@ -198,6 +226,17 @@ def test_model_command_rejects_unknown_model(tmp_path: Path) -> None:
     assert result.message is not None
     assert "Unknown model for provider openai: missing" in result.message
     assert session.model == "fake-model"
+
+
+def test_model_command_reports_provider_refresh_failure(tmp_path: Path) -> None:
+    class FailingRefreshSession(FakeSession):
+        def reload_provider_settings(self) -> None:
+            raise ValueError("providers.json is invalid")
+
+    result = create_default_command_registry().execute(FailingRefreshSession(tmp_path), "/model")
+
+    assert result.message == "Could not refresh provider settings: providers.json is invalid"
+    assert result.model_picker_requested is False
 
 
 def test_theme_command_requests_picker_and_sets_theme(tmp_path: Path) -> None:
@@ -244,12 +283,16 @@ def test_reload_command_refreshes_session_resources(tmp_path: Path) -> None:
     result = create_default_command_registry().execute(session, "/reload")
 
     assert result.message is not None
-    assert "Reloaded resources and provider configuration." in result.message
-    assert "Skills: 1" in result.message
-    assert "Prompt templates: 0" in result.message
-    assert "Context files: 1" in result.message
-    assert "Providers: 2" in result.message
+    assert "Reloaded local coding resources and project context." in result.message
+    assert "Resources:" in result.message
+    assert "Skills: 1 total (changed, +1)" in result.message
+    assert "Prompt templates: 0 total (unchanged)" in result.message
+    assert "Project context files: 1 total (changed, +1)" in result.message
+    assert "Next-turn system prompt: rebuilt" in result.message
+    assert "Provider config:" in result.message
+    assert "Not refreshed by /reload" in result.message
     assert session.reload_called is True
+    assert session.provider_reload_called is False
 
 
 def test_resume_without_argument_requests_picker(tmp_path: Path) -> None:
@@ -343,7 +386,9 @@ def test_registry_rejects_duplicate_commands_and_aliases() -> None:
         name="test",
         usage="/test",
         description="Test",
-        handler=lambda context: create_default_command_registry().execute(context.session, "/session"),
+        handler=lambda context: create_default_command_registry().execute(
+            context.session, "/session"
+        ),
     )
     registry.register(command)
 

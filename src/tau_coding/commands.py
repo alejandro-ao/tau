@@ -8,6 +8,7 @@ from typing import Protocol
 from tau_agent.tools import AgentTool
 from tau_coding.prompt_templates import PromptTemplate
 from tau_coding.provider_catalog import BUILTIN_PROVIDER_CATALOG, builtin_provider_entry
+from tau_coding.reload import CodingReloadSummary, ReloadCategorySummary
 from tau_coding.resources import ResourceDiagnostic
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
 from tau_coding.skills import Skill
@@ -70,7 +71,9 @@ class CommandSession(Protocol):
 
     def set_model(self, model: str) -> None: ...
 
-    def reload(self) -> None: ...
+    def reload(self) -> CodingReloadSummary: ...
+
+    def reload_provider_settings(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,7 +240,7 @@ def create_default_command_registry() -> CommandRegistry:
         SlashCommand(
             name="reload",
             usage="/reload",
-            description="Reload resources and provider configuration.",
+            description="Reload local resources and project context.",
             handler=_reload_command,
         )
     )
@@ -428,21 +431,13 @@ def _resources_command(context: CommandContext) -> CommandResult:
 
 def _reload_command(context: CommandContext) -> CommandResult:
     try:
-        context.session.reload()
+        summary = context.session.reload()
     except ValueError as exc:
         return CommandResult(handled=True, message=f"Could not reload: {exc}")
 
-    session = context.session
     return CommandResult(
         handled=True,
-        message=(
-            "Reloaded resources and provider configuration.\n"
-            f"Skills: {len(session.skills)}\n"
-            f"Prompt templates: {len(session.prompt_templates)}\n"
-            f"Context files: {len(session.context_files)}\n"
-            f"Providers: {len(session.available_providers)}\n"
-            f"Resource diagnostics: {len(session.resource_diagnostics)}"
-        ),
+        message=_format_reload_summary(summary),
     )
 
 
@@ -535,6 +530,10 @@ def _format_sessions(context: CommandContext) -> str:
 
 
 def _model_command(context: CommandContext) -> CommandResult:
+    refresh_error = _refresh_provider_settings(context.session)
+    if refresh_error is not None:
+        return refresh_error
+
     if context.args:
         model = context.args.strip()
         available_models = set(context.session.available_models)
@@ -552,6 +551,10 @@ def _model_command(context: CommandContext) -> CommandResult:
 
 
 def _scoped_models_command(context: CommandContext) -> CommandResult:
+    refresh_error = _refresh_provider_settings(context.session)
+    if refresh_error is not None:
+        return refresh_error
+
     if context.args:
         return CommandResult(handled=True, message="Usage: /scoped-models")
     return CommandResult(handled=True, scoped_models_picker_requested=True)
@@ -644,6 +647,48 @@ def _format_diagnostics(
     lines = ["Resource diagnostics:"]
     lines.extend(f"- {diagnostic.format()}" for diagnostic in filtered)
     return lines
+
+
+def _refresh_provider_settings(session: CommandSession) -> CommandResult | None:
+    try:
+        session.reload_provider_settings()
+    except ValueError as exc:
+        return CommandResult(
+            handled=True,
+            message=f"Could not refresh provider settings: {exc}",
+        )
+    return None
+
+
+def _format_reload_summary(summary: CodingReloadSummary) -> str:
+    lines = [
+        "Reloaded local coding resources and project context.",
+        "Resources:",
+        f"- Skills: {_format_reload_category(summary.skills)}",
+        f"- Prompt templates: {_format_reload_category(summary.prompt_templates)}",
+        "Context:",
+        f"- Project context files: {_format_reload_category(summary.context_files)}",
+        "- Next-turn system prompt: "
+        + ("rebuilt" if summary.system_prompt_rebuilt else "unchanged"),
+        "Diagnostics:",
+        f"- Resource diagnostics: {_format_reload_category(summary.diagnostics)}",
+        "Provider config:",
+        "- Not refreshed by /reload; use /login or /model for provider/model settings.",
+    ]
+    return "\n".join(lines)
+
+
+def _format_reload_category(summary: ReloadCategorySummary) -> str:
+    status = "changed" if summary.changed else "unchanged"
+    delta = _format_count_delta(summary.delta)
+    suffix = f", {delta}" if delta is not None else ""
+    return f"{summary.after} total ({status}{suffix})"
+
+
+def _format_count_delta(delta: int) -> str | None:
+    if delta == 0:
+        return None
+    return f"{delta:+d}"
 
 
 def _parse_command(text: str) -> tuple[str, str]:

@@ -44,7 +44,7 @@ The default registry includes:
 - `/resume` — open previous-session selection or resume a specific session id
 - `/model` — choose or switch the current model
 - `/login` — add or refresh a built-in provider login
-- `/reload` — reload resources and provider configuration
+- `/reload` — reload local resources and project context
 - `/name` — rename the current session
 - `/theme` — show or set the TUI theme
 

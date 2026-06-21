@@ -69,11 +69,15 @@ Tau now has:
 - prompt templates
 - project context files
 - resource diagnostics
-- provider settings used by `/login` and `/model`
 
-When the session is using Tau's generated system prompt, reload also rebuilds
-the harness system string so the next model request sees the updated resources
-and context. The transcript and session tree are left untouched.
+When the session is using Tau's generated system prompt, reload rebuilds the
+harness system string only when the resources that feed that prompt changed.
+The transcript and session tree are left untouched.
+
+`/reload` does not refresh provider configuration. Provider/model settings are
+refreshed by the provider-specific flows that use them, such as `/login` after
+saving credentials and `/model` before validating choices or opening the model
+picker.
 
 `/status` and `/resources` also include the current context-file count.
 
@@ -81,8 +85,8 @@ and context. The transcript and session tree are left untouched.
 
 Reload is a `tau_coding` operation. It updates the coding-session environment
 around the harness, then gives the harness a rebuilt system string for future
-turns. `tau_agent` does not know where skills, prompts, context files, or
-provider settings come from.
+turns when needed. `tau_agent` does not know where skills, prompts, or context
+files come from.
 
 ## Tests
 
@@ -102,4 +106,5 @@ The tests verify:
 - discovered context included in print-mode system prompts
 - `/context`, `/status`, and `/resources` command output
 - `/reload` command output
-- reload updating resources and the next-turn system prompt
+- reload updating resources and the next-turn system prompt only when prompt
+  inputs changed

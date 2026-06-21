@@ -292,6 +292,9 @@ Useful TUI commands:
 /theme tau-light
 ```
 
+`/reload` refreshes local coding resources and project instruction context for
+future turns. Provider settings are refreshed by `/login` and `/model` instead.
+
 In the TUI, `Shift-Tab` cycles the active thinking mode by default. `Ctrl+T`
 toggles display of streamed thinking/reasoning tokens when the active provider
 emits them. Thinking tokens are hidden by default and can be remapped in
