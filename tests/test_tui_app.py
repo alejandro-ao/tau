@@ -2864,19 +2864,29 @@ async def test_tui_app_runs_initial_prompt() -> None:
 
 
 @pytest.mark.anyio
-async def test_run_tui_app_starts_with_latest_directory_provider_model(
+async def test_run_tui_app_ignores_latest_directory_provider_model_for_new_session(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     calls: list[str] = []
-    record = CodingSessionRecord(
-        id="new-session",
-        path=tmp_path / "new-session.jsonl",
-        cwd=tmp_path,
+    latest_record = CodingSessionRecord(
+        id="latest-session",
+        path=tmp_path / "latest-session.jsonl",
+        cwd=tmp_path / "other",
         model="gpt-5.5",
         title=None,
         created_at=1.0,
         updated_at=1.0,
         provider_name="openai-codex",
+    )
+    created_record = CodingSessionRecord(
+        id="new-session",
+        path=tmp_path / "new-session.jsonl",
+        cwd=tmp_path,
+        model="gpt-5",
+        title=None,
+        created_at=2.0,
+        updated_at=2.0,
+        provider_name="openai",
     )
 
     class FakeProvider:
@@ -2886,7 +2896,7 @@ async def test_run_tui_app_starts_with_latest_directory_provider_model(
     class FakeManager:
         def latest_session_for_cwd(self, cwd: Path) -> CodingSessionRecord | None:
             calls.append(f"latest:{cwd}")
-            return record
+            return latest_record
 
         def create_session(
             self,
@@ -2896,7 +2906,7 @@ async def test_run_tui_app_starts_with_latest_directory_provider_model(
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
             calls.append(f"create:{cwd}:{model}:{provider_name}")
-            return record
+            return created_record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
             return None
@@ -2904,8 +2914,8 @@ async def test_run_tui_app_starts_with_latest_directory_provider_model(
     class FakeCodingSession:
         @classmethod
         async def load(cls, config: object) -> str:
-            assert config.provider_name == "openai-codex"  # type: ignore[attr-defined]
-            assert config.model == "gpt-5.5"  # type: ignore[attr-defined]
+            assert config.provider_name == "openai"  # type: ignore[attr-defined]
+            assert config.model == "gpt-5"  # type: ignore[attr-defined]
             calls.append("load")
             return "session"
 
@@ -2921,8 +2931,8 @@ async def test_run_tui_app_starts_with_latest_directory_provider_model(
         providers=(
             OpenAICompatibleProviderConfig(
                 name="openai",
-                models=("gpt-5.5",),
-                default_model="gpt-5.5",
+                models=("gpt-5",),
+                default_model="gpt-5",
             ),
             OpenAICodexProviderConfig(
                 name="openai-codex",
@@ -2946,9 +2956,8 @@ async def test_run_tui_app_starts_with_latest_directory_provider_model(
     await tui_app.run_tui_app(cwd=tmp_path, model=None, session_manager=FakeManager())
 
     assert calls == [
-        f"latest:{tmp_path}",
-        "provider:openai-codex:gpt-5.5",
-        f"create:{tmp_path}:gpt-5.5:openai-codex",
+        "provider:openai:gpt-5",
+        f"create:{tmp_path}:gpt-5:openai",
         "load",
         "run",
         "provider_closed",
@@ -2956,7 +2965,7 @@ async def test_run_tui_app_starts_with_latest_directory_provider_model(
 
 
 @pytest.mark.anyio
-async def test_run_tui_app_falls_back_to_scoped_model_when_latest_is_out_of_scope(
+async def test_run_tui_app_does_not_start_new_session_from_scoped_model(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     calls: list[str] = []
@@ -3013,7 +3022,7 @@ async def test_run_tui_app_falls_back_to_scoped_model_when_latest_is_out_of_scop
     class FakeCodingSession:
         @classmethod
         async def load(cls, config: object) -> str:
-            assert config.provider_name == "openai-codex"  # type: ignore[attr-defined]
+            assert config.provider_name == "openai"  # type: ignore[attr-defined]
             calls.append("load")
             return "session"
 
@@ -3055,9 +3064,8 @@ async def test_run_tui_app_falls_back_to_scoped_model_when_latest_is_out_of_scop
     await tui_app.run_tui_app(cwd=tmp_path, model=None, session_manager=FakeManager())
 
     assert calls == [
-        f"latest:{tmp_path}",
-        "provider:openai-codex:gpt-5.5",
-        f"create:{tmp_path}:gpt-5.5:openai-codex",
+        "provider:openai:gpt-5.5",
+        f"create:{tmp_path}:gpt-5.5:openai",
         "load",
         "run",
         "provider_closed",

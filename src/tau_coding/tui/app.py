@@ -3093,14 +3093,6 @@ def _explicit_resume_record(
     return record
 
 
-def _latest_startup_record(manager: SessionManager, *, cwd: Path) -> object | None:
-    latest = getattr(manager, "latest_session_for_cwd", None)
-    if callable(latest):
-        return latest(cwd)
-    records = manager.list_sessions(cwd) if hasattr(manager, "list_sessions") else ()
-    return records[0] if records else None
-
-
 def _create_startup_session_record(
     manager: SessionManager,
     *,
@@ -3120,8 +3112,6 @@ def _create_startup_session_record(
 def _resolve_tui_startup_selection(
     settings: Any,
     *,
-    manager: SessionManager,
-    cwd: Path,
     record: Any | None,
     provider_name: str | None,
     model: str | None,
@@ -3130,25 +3120,10 @@ def _resolve_tui_startup_selection(
     if provider_name is not None or model is not None:
         return resolve_provider_selection(settings, provider_name=provider_name, model=model)
 
-    reference = record if record is not None else _latest_startup_record(manager, cwd=cwd)
-    scoped = _usable_scoped_startup_choices(settings)
-    scoped_required = bool(settings.scoped_models) and not explicit_resume
-    record_selection = _selection_from_session_record(settings, reference)
-    if record_selection is not None:
-        record_choice = ModelChoice(
-            provider_name=record_selection.provider.name,
-            model=record_selection.model,
-        )
-        if not scoped_required or record_choice in scoped:
+    if explicit_resume:
+        record_selection = _selection_from_session_record(settings, record)
+        if record_selection is not None:
             return record_selection
-
-    if scoped:
-        choice = scoped[0]
-        return resolve_provider_selection(
-            settings,
-            provider_name=choice.provider_name,
-            model=choice.model,
-        )
 
     return resolve_provider_selection(settings)
 
@@ -3224,8 +3199,6 @@ async def run_tui_app(
     )
     selection = _resolve_tui_startup_selection(
         provider_settings,
-        manager=manager,
-        cwd=cwd,
         record=record,
         provider_name=provider_name,
         model=model,
