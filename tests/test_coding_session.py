@@ -42,6 +42,7 @@ from tau_coding import (
     ProviderSettings,
     ScopedModelConfig,
     SessionManager,
+    SessionTreeBranchResult,
     TauPaths,
     TauResourcePaths,
     save_provider_settings,
@@ -396,10 +397,14 @@ async def test_tree_can_branch_from_first_user_message_before_assistant_response
     message_entries = [entry for entry in entries if entry.type == "message"]
 
     assert [choice.label for choice in choices] == ["user: Start here"]
-    assert result == f"Branched session at {choices[0].entry_id}."
+    assert result == SessionTreeBranchResult(
+        message=f"Branched session before {choices[0].entry_id}.",
+        input_prefill="Start here",
+    )
+    assert session.messages == ()
     assert [entry.message for entry in message_entries] == [UserMessage(content="Start here")]
     assert isinstance(entries[-1], LeafEntry)
-    assert entries[-1].entry_id == choices[0].entry_id
+    assert entries[-1].entry_id == message_entries[0].parent_id
 
 
 @pytest.mark.anyio
@@ -671,8 +676,11 @@ async def test_tree_branching_detaches_missing_root_parent_from_imported_branch(
     result = await session.branch_to_entry("root")
 
     assert [choice.entry_id for choice in choices] == ["root", "assistant"]
-    assert result == "Branched session at root."
-    assert session.messages == (UserMessage(content="Root"),)
+    assert result == SessionTreeBranchResult(
+        message="Branched session before root.",
+        input_prefill="Root",
+    )
+    assert session.messages == ()
 
 
 @pytest.mark.anyio
@@ -766,11 +774,50 @@ async def test_session_branches_to_previous_entry_without_destroying_history(
     result = await session.branch_to_entry("left")
 
     entries = await storage.read_all()
-    assert result == "Branched session at left."
+    assert result == SessionTreeBranchResult(message="Branched session at left.")
     assert session.messages == (UserMessage(content="Root"), AssistantMessage(content="Left"))
     assert [entry.id for entry in entries if entry.type == "message"] == ["root", "left", "right"]
     assert isinstance(entries[-1], LeafEntry)
     assert entries[-1].entry_id == "left"
+
+
+@pytest.mark.anyio
+async def test_session_branches_to_before_selected_user_message_with_prefill(
+    tmp_path: Path,
+) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    root = MessageEntry(id="root", message=UserMessage(content="Root"))
+    assistant = MessageEntry(
+        id="assistant",
+        parent_id="root",
+        message=AssistantMessage(content="Answer"),
+    )
+    followup = MessageEntry(
+        id="followup",
+        parent_id="assistant",
+        message=UserMessage(content="Try this again"),
+    )
+    await storage.append(root)
+    await storage.append(assistant)
+    await storage.append(followup)
+    await storage.append(LeafEntry(entry_id="followup"))
+    session = await CodingSession.load(_config(tmp_path, FakeProvider([]), storage))
+
+    result = await session.branch_to_entry("followup")
+
+    entries = await storage.read_all()
+    assert result == SessionTreeBranchResult(
+        message="Branched session before followup.",
+        input_prefill="Try this again",
+    )
+    assert session.messages == (UserMessage(content="Root"), AssistantMessage(content="Answer"))
+    assert [entry.id for entry in entries if entry.type == "message"] == [
+        "root",
+        "assistant",
+        "followup",
+    ]
+    assert isinstance(entries[-1], LeafEntry)
+    assert entries[-1].entry_id == "assistant"
 
 
 @pytest.mark.anyio
@@ -837,7 +884,7 @@ async def test_session_branch_with_summary_rebuilds_context(tmp_path: Path) -> N
     entries = await storage.read_all()
     summary = entries[-2]
 
-    assert "with branch summary" in result
+    assert "with branch summary" in result.message
     assert summary.type == "branch_summary"
     assert summary.parent_id == "root"
     assert summary.branch_root_id == "root"
@@ -950,7 +997,7 @@ async def test_session_branch_with_summary_falls_back_when_model_summary_is_unav
     entries = await storage.read_all()
     summary = entries[-2]
 
-    assert "with branch summary" in result
+    assert "with branch summary" in result.message
     assert summary.type == "branch_summary"
     assert "Automatically compacted 2 prior message(s)." in summary.summary
     assert "Abandoned follow-up" in summary.summary

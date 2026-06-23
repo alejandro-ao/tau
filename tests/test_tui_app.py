@@ -38,7 +38,12 @@ from tau_coding.provider_config import (
     ScopedModelConfig,
     save_provider_settings,
 )
-from tau_coding.session import ModelChoice, SessionTreeChoice, TerminalCommandResult
+from tau_coding.session import (
+    ModelChoice,
+    SessionTreeBranchResult,
+    SessionTreeChoice,
+    TerminalCommandResult,
+)
 from tau_coding.session_manager import CodingSessionRecord
 from tau_coding.skills import Skill, format_skill_invocation
 from tau_coding.system_prompt import ProjectContextFile
@@ -2085,6 +2090,44 @@ async def test_tui_app_tree_picker_branches_with_summary() -> None:
         assert [(item.role, item.text) for item in app.state.items] == [
             ("user", "Branched to left"),
         ]
+
+
+@pytest.mark.anyio
+async def test_tui_app_tree_picker_prefills_selected_user_message() -> None:
+    class PrefillSession(FakeSession):
+        async def branch_to_entry(
+            self,
+            entry_id: str,
+            *,
+            summarize: bool = False,
+            custom_instructions: str | None = None,
+        ) -> SessionTreeBranchResult:
+            self.tree_branch_requests.append((entry_id, summarize, custom_instructions))
+            self.messages = ()
+            return SessionTreeBranchResult(
+                message=f"Branched session before {entry_id}.",
+                input_prefill="Root",
+            )
+
+    session = PrefillSession()
+    app = TauTuiApp(session)
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "/tree"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, TreePickerScreen)
+        await pilot.press("up", "up", "up")
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert session.tree_branch_requests == [("root", False, None)]
+        assert session.prompt_texts == []
+        assert [(item.role, item.text) for item in app.state.items] == []
+        assert prompt.value == "Root"
+        assert prompt.cursor_location == (0, 4)
 
 
 @pytest.mark.anyio

@@ -106,6 +106,16 @@ def test_session_state_replays_linear_entries() -> None:
     assert state.context_entry_ids == ("user", "assistant")
 
 
+def test_session_state_can_replay_explicit_empty_leaf() -> None:
+    root = MessageEntry(id="root", message=UserMessage(content="Hi"))
+
+    state = SessionState.from_entries([root], leaf_id=None)
+
+    assert state.messages == ()
+    assert state.active_leaf_id is None
+    assert state.context_entry_ids == ()
+
+
 def test_session_state_replays_compaction_as_context_summary() -> None:
     user = MessageEntry(id="user", message=UserMessage(content="Explain sessions."))
     assistant = MessageEntry(

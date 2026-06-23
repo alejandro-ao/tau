@@ -74,6 +74,7 @@ from tau_coding.session import (
     CodingSession,
     CodingSessionConfig,
     ModelChoice,
+    SessionTreeBranchResult,
     SessionTreeChoice,
     jsonl_session_storage,
     parse_terminal_command,
@@ -775,12 +776,12 @@ class LoginProviderPickerScreen(ModalScreen[str | None]):
         super().__init__()
         self.providers = tuple(providers)
         self.theme = theme
-        self.title = title
+        self.title_text = title
 
     def compose(self) -> ComposeResult:
         """Compose the provider picker."""
         with Vertical(id="login-provider-picker"):
-            yield Static(self.title, id="login-provider-title")
+            yield Static(self.title_text, id="login-provider-title")
             yield ListView(
                 *[
                     ListItem(Label(_login_provider_label(provider), markup=False))
@@ -2014,7 +2015,8 @@ class TauTuiApp(App[None]):
             result = await run_terminal_command(command, add_to_context=add_to_context)
         except Exception as exc:  # noqa: BLE001 - surface command execution failures in the TUI
             if item_index < len(self.state.items):
-                self.state.items[item_index].tool_result_text = format_terminal_command_result_block(
+                item = self.state.items[item_index]
+                item.tool_result_text = format_terminal_command_result_block(
                     ok=False,
                     added_to_context=add_to_context,
                     output=str(exc),
@@ -2385,7 +2387,14 @@ class TauTuiApp(App[None]):
             self.state.clear()
             self.state.set_skills(self.session.skills)
             self.state.load_messages(self.session.messages)
-            if isinstance(result, str):
+            if isinstance(result, SessionTreeBranchResult):
+                if result.input_prefill is not None:
+                    prompt = self.query_one("#prompt", PromptInput)
+                    prompt.value = result.input_prefill
+                    prompt.move_cursor(_text_end_location(result.input_prefill))
+                    prompt.focus()
+                self._notify(result.message)
+            elif isinstance(result, str):
                 self._notify(result)
         except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
             self._notify(f"Error: {exc}", severity="error")

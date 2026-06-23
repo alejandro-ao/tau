@@ -1,6 +1,7 @@
 """In-memory session state reconstruction."""
 
 from dataclasses import dataclass
+from typing import Final, cast
 
 from tau_agent.messages import AgentMessage, UserMessage
 from tau_agent.session.entries import (
@@ -11,6 +12,8 @@ from tau_agent.session.entries import (
     SessionInfoEntry,
 )
 from tau_agent.session.tree import path_to_entry
+
+_UNSET_LEAF_ID: Final[object] = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,20 +36,29 @@ class SessionState:
         cls,
         entries: list[SessionEntry],
         *,
-        leaf_id: str | None = None,
+        leaf_id: str | None | object = _UNSET_LEAF_ID,
     ) -> SessionState:
         """Replay entries into state.
 
-        When `leaf_id` is provided, only the root-to-leaf path is replayed. Without
-        it, entries are replayed linearly in storage order.
+        When `leaf_id` is provided, only the root-to-leaf path is replayed. Passing
+        ``None`` explicitly replays the empty path before the first root entry.
+        Without it, entries are replayed linearly in storage order.
         """
-        replay_entries = path_to_entry(entries, leaf_id) if leaf_id is not None else entries
+        replay_all = leaf_id is _UNSET_LEAF_ID
+        resolved_leaf_id = None if replay_all else cast(str | None, leaf_id)
+        replay_entries = (
+            entries
+            if replay_all
+            else path_to_entry(entries, resolved_leaf_id)
+            if resolved_leaf_id is not None
+            else []
+        )
 
         message_rows: list[tuple[str, AgentMessage]] = []
         model: str | None = None
         thinking_level: str | None = None
         label: str | None = None
-        active_leaf_id: str | None = leaf_id
+        active_leaf_id: str | None = resolved_leaf_id
         session_info: SessionInfoEntry | None = None
         custom_entries: list[CustomEntry] = []
         compaction_entries: list[CompactionEntry] = []
