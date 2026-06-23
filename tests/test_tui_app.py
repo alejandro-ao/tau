@@ -2101,6 +2101,31 @@ def test_visible_completion_state_keeps_selected_item_in_render_window() -> None
     assert _completion_selected_render_line(visible) < 8
 
 
+def test_visible_completion_state_accounts_for_wrapped_descriptions() -> None:
+    items = tuple(
+        CompletionItem(
+            display=f"/prompt-{index:02d}",
+            replacement=f"/prompt-{index:02d}",
+            start=0,
+            end=1,
+            description=(
+                "This prompt has a long description that wraps across multiple lines "
+                "inside the completion table."
+            ),
+            category="Custom prompts",
+        )
+        for index in range(12)
+    )
+    state = CompletionState(items=items, selected_index=8)
+
+    visible = _visible_completion_state(state, max_lines=8, width=48)
+
+    assert visible.selected is not None
+    assert visible.selected.display == "/prompt-08"
+    assert tui_app._completion_render_line_count(visible, width=48) <= 8
+    assert _completion_selected_render_line(visible, width=48) < 7
+
+
 def test_visible_completion_state_keeps_selected_item_above_bottom_edge() -> None:
     items = tuple(
         CompletionItem(

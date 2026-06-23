@@ -6,10 +6,11 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from inspect import isawaitable
+from io import StringIO
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol, cast
 
-from rich.console import Group
+from rich.console import Console, Group
 from rich.text import Text
 from textual import events, on
 from textual.app import App, ComposeResult
@@ -80,9 +81,15 @@ from tau_coding.session import (
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
 from tau_coding.thinking import DEFAULT_THINKING_LEVEL
 from tau_coding.tui.adapter import TuiEventAdapter
-from tau_coding.tui.autocomplete import CompletionOption, CompletionState, build_completion_state
+from tau_coding.tui.autocomplete import (
+    CompletionItem,
+    CompletionOption,
+    CompletionState,
+    build_completion_state,
+)
 from tau_coding.tui.config import (
     BUILTIN_TUI_THEME_NAMES,
+    TAU_DARK_THEME,
     TuiKeybindings,
     TuiSettings,
     TuiTheme,
@@ -2773,6 +2780,7 @@ class TauTuiApp(App[None]):
                 _visible_completion_state(
                     self._completion_state,
                     max_lines=COMPLETION_MAX_VISIBLE_LINES,
+                    width=max(suggestions.content_size.width or suggestions.size.width, 1),
                 ),
                 theme=self.tui_settings.resolved_theme,
             )
@@ -2901,6 +2909,7 @@ def _visible_completion_state(
     state: CompletionState,
     *,
     max_lines: int,
+    width: int | None = None,
 ) -> CompletionState:
     """Return a completion-state window with the selected item visible."""
     if not state.items or max_lines <= 0:
@@ -2913,7 +2922,7 @@ def _visible_completion_state(
             items=state.items[start:],
             selected_index=state.selected_index - start,
         )
-        if _completion_selected_render_line(candidate) < selected_line_limit:
+        if _completion_selected_render_line(candidate, width=width) < selected_line_limit:
             break
         start += 1
 
@@ -2923,9 +2932,18 @@ def _visible_completion_state(
             items=state.items[start:end],
             selected_index=state.selected_index - start,
         )
-        if _completion_render_line_count(candidate) <= max_lines:
+        if _completion_render_line_count(candidate, width=width) <= max_lines:
             break
         end -= 1
+
+    while start < state.selected_index:
+        candidate = CompletionState(
+            items=state.items[start:end],
+            selected_index=state.selected_index - start,
+        )
+        if _completion_render_line_count(candidate, width=width) <= max_lines:
+            break
+        start += 1
 
     return CompletionState(
         items=state.items[start:end],
@@ -2933,7 +2951,7 @@ def _visible_completion_state(
     )
 
 
-def _completion_selected_render_line(state: CompletionState) -> int:
+def _completion_selected_render_line(state: CompletionState, *, width: int | None = None) -> int:
     """Return the rendered line number for the selected completion item."""
     line = 0
     has_rendered_text = False
@@ -2950,11 +2968,12 @@ def _completion_selected_render_line(state: CompletionState) -> int:
             line += 1
         if index == state.selected_index:
             return line
+        line += _completion_item_extra_wrapped_lines(item, width=width)
         has_rendered_text = True
     return line
 
 
-def _completion_render_line_count(state: CompletionState) -> int:
+def _completion_render_line_count(state: CompletionState, *, width: int | None = None) -> int:
     """Return how many lines the completion state renders into."""
     if not state.items:
         return 0
@@ -2967,8 +2986,35 @@ def _completion_render_line_count(state: CompletionState) -> int:
             if item.category:
                 line_count += 1
             previous_category = item.category
-        line_count += 1
+        line_count += 1 + _completion_item_extra_wrapped_lines(item, width=width)
     return line_count
+
+
+def _completion_item_extra_wrapped_lines(
+    item: CompletionItem,
+    *,
+    width: int | None,
+) -> int:
+    """Return extra rendered lines used when a completion description wraps."""
+    if width is None or width <= 0 or not item.description:
+        return 0
+    output = StringIO()
+    console = Console(
+        file=output,
+        width=width,
+        force_terminal=False,
+        color_system=None,
+        legacy_windows=False,
+    )
+    console.print(
+        render_completion_suggestions(
+            CompletionState(items=(item,), selected_index=0),
+            theme=TAU_DARK_THEME,
+        ),
+        end="",
+    )
+    line_count = len(output.getvalue().splitlines())
+    return max(line_count - 1, 0)
 
 
 def _session_command_registry(session: CodingSession) -> CommandRegistry:
