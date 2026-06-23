@@ -149,7 +149,7 @@ class TranscriptMessageWidget(Horizontal):
     }
 
     TranscriptMessageWidget > .transcript-markdown-body > MarkdownParagraph {
-        margin: 0;
+        margin: 0 0 1 0;
     }
 
     TranscriptMessageWidget > .transcript-markdown-body > MarkdownFence {
@@ -233,6 +233,10 @@ class StreamingTranscriptMessageWidget(ThemedMarkdownWidget):
         height: auto;
         margin: 1 1 2 1;
         padding: 0 1 0 0;
+    }
+
+    StreamingTranscriptMessageWidget MarkdownParagraph {
+        margin: 0 0 1 0;
     }
     """
 
