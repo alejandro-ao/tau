@@ -2841,6 +2841,81 @@ async def test_tui_app_runs_terminal_command_without_context() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("add_to_context", [True, False])
+async def test_tui_app_renders_terminal_command_while_running(add_to_context: bool) -> None:
+    session = FakeSession()
+    app = TauTuiApp(session)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fake_run_terminal_command(
+        command: str,
+        *,
+        add_to_context: bool,
+    ) -> TerminalCommandResult:
+        started.set()
+        await release.wait()
+        return TerminalCommandResult(
+            command=command,
+            output="finished",
+            exit_code=0,
+            ok=True,
+            added_to_context=add_to_context,
+        )
+
+    session.run_terminal_command = fake_run_terminal_command  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        task = asyncio.create_task(
+            app._run_terminal_command("sleep 1", add_to_context=add_to_context)
+        )
+        await started.wait()
+        await pilot.pause()
+
+        assert [(item.role, item.text, item.tool_result_text) for item in app.state.items] == [
+            ("tool", "$ sleep 1", None)
+        ]
+        assert app.state.items[-1].always_show_tool_result is True
+
+        release.set()
+        await task
+
+    context_label = "added to context" if add_to_context else "not added to context"
+    assert app.state.items[-1].tool_result_text == f"✓ bash · {context_label}\nfinished"
+
+
+@pytest.mark.anyio
+async def test_tui_app_marks_failed_terminal_command_as_error() -> None:
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async def fake_run_terminal_command(
+        command: str,
+        *,
+        add_to_context: bool,
+    ) -> TerminalCommandResult:
+        return TerminalCommandResult(
+            command=command,
+            output="failed",
+            exit_code=2,
+            ok=False,
+            added_to_context=add_to_context,
+        )
+
+    session.run_terminal_command = fake_run_terminal_command  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "!! false"
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert session.prompt_texts == []
+    assert app.state.items[-1].text == "$ false"
+    assert app.state.items[-1].tool_result_text == "✗ bash · not added to context\nfailed"
+
+
+@pytest.mark.anyio
 async def test_tui_app_renders_terminal_command_output_when_tool_results_are_collapsed() -> None:
     item = ChatItem(
         role="tool",

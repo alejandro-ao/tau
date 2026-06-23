@@ -1978,20 +1978,32 @@ class TauTuiApp(App[None]):
         if not callable(run_terminal_command):
             self._notify("Terminal commands are not available.", severity="error")
             return
+        item_index = len(self.state.items)
+        self.state.add_item(
+            "tool",
+            f"$ {command.strip()}",
+            always_show_tool_result=True,
+        )
+        self._refresh()
         try:
             result = await run_terminal_command(command, add_to_context=add_to_context)
         except Exception as exc:  # noqa: BLE001 - surface command execution failures in the TUI
+            if item_index < len(self.state.items):
+                self.state.items[item_index].tool_result_text = (
+                    f"✗ bash\nCould not run command: {exc}"
+                )
+                self._refresh()
+                return
             self._notify(f"Could not run command: {exc}", severity="error")
             return
-        self.state.add_item(
-            "tool",
-            f"$ {result.command}",
-            tool_result_text=format_terminal_command_result_block(
-                ok=result.ok,
-                added_to_context=result.added_to_context,
-                output=result.output,
-            ),
-            always_show_tool_result=True,
+        if item_index >= len(self.state.items):
+            return
+        item = self.state.items[item_index]
+        item.text = f"$ {result.command}"
+        item.tool_result_text = format_terminal_command_result_block(
+            ok=result.ok,
+            added_to_context=result.added_to_context,
+            output=result.output,
         )
         self._refresh()
 
