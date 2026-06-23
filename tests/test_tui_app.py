@@ -669,6 +669,42 @@ def test_tui_state_compacts_expanded_skill_messages() -> None:
     ]
 
 
+def test_tui_state_renders_restored_skill_file_reads_with_skill_style() -> None:
+    skill = Skill(
+        name="review",
+        path=Path("/workspace/.tau/skills/review.md"),
+        content="# Review\nFull noisy instructions.",
+        description="Review code",
+    )
+    state = tui_app.TuiState(skills=(skill,))
+
+    state.load_messages(
+        [
+            AssistantMessage(
+                content="Reading skill.",
+                tool_calls=[
+                    ToolCall(
+                        id="call-1",
+                        name="read",
+                        arguments={"path": "/workspace/.tau/skills/review.md"},
+                    )
+                ],
+            ),
+            ToolResultMessage(
+                tool_call_id="call-1",
+                name="read",
+                ok=True,
+                content="# Review\nFull noisy instructions.",
+            ),
+        ]
+    )
+
+    assert [(item.role, item.text, item.tool_result_text) for item in state.items] == [
+        ("assistant", "Reading skill.", None),
+        ("skill", "Reading skill: review", "✓ read\n# Review\nFull noisy instructions."),
+    ]
+
+
 def test_light_theme_tool_success_uses_dark_text_without_background() -> None:
     console = Console(record=True, width=80)
     console.print(
