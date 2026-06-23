@@ -26,9 +26,9 @@ not wait for the entire retry sleep to finish.
 
 ## Rendering
 
-Transcript and TUI renderers show retry progress as subtle status output. Final
-text mode ignores retry progress and only prints the final assistant response or
-final error.
+Transcript, final-text CLI mode, and TUI renderers show retry progress as subtle
+status output. Final text mode still prints only the final assistant response on
+stdout; retry progress goes to stderr.
 
 ## Boundary
 

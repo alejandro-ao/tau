@@ -97,6 +97,24 @@ def test_final_text_renderer_prints_only_final_message(
     assert captured.out == "Final answer\n"
 
 
+def test_final_text_renderer_shows_retry_status(capsys: pytest.CaptureFixture[str]) -> None:
+    renderer = FinalTextRenderer()
+
+    renderer.render(
+        RetryEvent(
+            attempt=2,
+            max_attempts=3,
+            delay_seconds=0,
+            message="Retrying provider request 2/3 after HTTP 503.",
+        )
+    )
+
+    captured = capsys.readouterr()
+
+    assert "… Retrying provider request 2/3 after HTTP 503." in captured.err
+    assert captured.out == ""
+
+
 def test_final_text_renderer_prints_errors_on_finish(capsys: pytest.CaptureFixture[str]) -> None:
     renderer = FinalTextRenderer()
 

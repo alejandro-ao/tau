@@ -26,7 +26,12 @@ from tau_ai.events import (
     ProviderToolCallEvent,
 )
 from tau_ai.provider import CancellationToken
-from tau_ai.retry import provider_retry_event, retry_delay_seconds, wait_for_retry
+from tau_ai.retry import (
+    is_transient_status,
+    provider_retry_event,
+    retry_delay_seconds,
+    wait_for_retry,
+)
 
 DEFAULT_OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api"
 
@@ -155,13 +160,45 @@ class OpenAICodexProvider:
                             return
 
                         yield ProviderResponseStartEvent(model=model)
+                        retry_stream = False
                         async for event in _codex_provider_events(response, signal=signal):
                             if isinstance(
                                 event,
                                 ProviderTextDeltaEvent | ProviderToolCallEvent,
                             ):
                                 emitted_content = True
+                            if (
+                                isinstance(event, ProviderErrorEvent)
+                                and event.retryable
+                                and not emitted_content
+                                and self._should_retry(attempt, provider_error=event)
+                            ):
+                                delay = retry_delay_seconds(
+                                    attempt,
+                                    max_delay_seconds=(
+                                        self._config.max_retry_delay_seconds
+                                    ),
+                                )
+                                yield provider_retry_event(
+                                    attempt=attempt,
+                                    max_retries=self._config.max_retries,
+                                    delay_seconds=delay,
+                                    reason=event.message,
+                                    data=event.data,
+                                )
+                                attempt += 1
+                                if not await wait_for_retry(delay, signal=signal):
+                                    return
+                                retry_stream = True
+                                break
+                            if isinstance(event, ProviderErrorEvent):
+                                data = dict(event.data or {})
+                                data["attempts"] = attempt + 1
+                                yield event.model_copy(update={"data": data})
+                                return
                             yield event
+                        if retry_stream:
+                            continue
                         return
                 except httpx.HTTPError as exc:
                     if not emitted_content and self._should_retry(attempt):
@@ -205,9 +242,12 @@ class OpenAICodexProvider:
         *,
         status_code: int | None = None,
         body: str = "",
+        provider_error: ProviderErrorEvent | None = None,
     ) -> bool:
         if attempt >= self._config.max_retries:
             return False
+        if provider_error is not None:
+            return provider_error.retryable
         return status_code is None or _is_retryable_status(status_code, body)
 
 
@@ -367,6 +407,7 @@ async def _codex_provider_events(
         if event_type == "error":
             yield ProviderErrorEvent(
                 message=_error_message(event, fallback="OpenAI Codex returned an error"),
+                retryable=_is_retryable_provider_event(event),
                 data={"event": event},
             )
             return
@@ -374,6 +415,7 @@ async def _codex_provider_events(
         if event_type == "response.failed":
             yield ProviderErrorEvent(
                 message=_response_error_message(event),
+                retryable=_is_retryable_provider_event(event),
                 data={"event": event},
             )
             return
@@ -717,7 +759,51 @@ def _loads_object(value: str) -> dict[str, JSONValue] | None:
 def _is_retryable_status(status_code: int, body: str) -> bool:
     if status_code == 429 and _is_terminal_rate_limit(body):
         return False
-    return status_code in {408, 409, 425, 429} or status_code >= 500
+    return is_transient_status(status_code)
+
+
+def _is_retryable_provider_event(event: Mapping[str, Any]) -> bool:
+    status_code = _event_status_code(event)
+    if status_code is not None:
+        return is_transient_status(status_code)
+    code = _event_error_code(event)
+    if code is None:
+        return False
+    return code.lower() in {
+        "server_error",
+        "service_unavailable",
+        "temporarily_unavailable",
+        "rate_limit_exceeded",
+        "timeout",
+    }
+
+
+def _event_status_code(event: Mapping[str, Any]) -> int | None:
+    for value in _nested_event_values(event, "status", "status_code", "http_status"):
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    return None
+
+
+def _event_error_code(event: Mapping[str, Any]) -> str | None:
+    for value in _nested_event_values(event, "code", "type"):
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _nested_event_values(event: Mapping[str, Any], *names: str) -> list[Any]:
+    values: list[Any] = []
+    for name in names:
+        values.append(event.get(name))
+    for key in ("error", "response"):
+        child = event.get(key)
+        if isinstance(child, Mapping):
+            for name in names:
+                values.append(child.get(name))
+    return values
 
 
 def _is_terminal_rate_limit(body: str) -> bool:

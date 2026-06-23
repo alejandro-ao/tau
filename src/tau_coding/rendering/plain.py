@@ -1,8 +1,10 @@
 """Pi-style final text renderer for print mode."""
 
 import typer
+from rich.console import Console
+from rich.text import Text
 
-from tau_agent import AgentEvent, ErrorEvent, MessageEndEvent
+from tau_agent import AgentEvent, ErrorEvent, MessageEndEvent, RetryEvent
 
 
 class FinalTextRenderer:
@@ -12,6 +14,7 @@ class FinalTextRenderer:
         self._last_assistant_text = ""
         self._failed = False
         self._error_messages: list[str] = []
+        self._console = Console(stderr=True, highlight=False)
 
     def render(self, event: AgentEvent) -> None:
         """Record events needed for final text output."""
@@ -23,6 +26,10 @@ class FinalTextRenderer:
             if not event.recoverable:
                 self._failed = True
             self._error_messages.append(event.message)
+            return
+
+        if isinstance(event, RetryEvent):
+            self._console.print(Text(f"… {event.message}", style="bright_black"))
 
     def finish(self) -> bool:
         """Print final text or errors and return whether the run succeeded."""
