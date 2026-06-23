@@ -134,7 +134,7 @@ class TranscriptMessageWidget(Horizontal):
     TranscriptMessageWidget {
         width: 1fr;
         height: auto;
-        margin: 1 1 2 0;
+        margin: 1 1 1 0;
     }
 
     TranscriptMessageWidget > .transcript-message-gutter {
@@ -148,16 +148,16 @@ class TranscriptMessageWidget(Horizontal):
         padding: 0 1 0 1;
     }
 
-    TranscriptMessageWidget > .transcript-message-body > MarkdownParagraph {
+    TranscriptMessageWidget > .transcript-markdown-body > MarkdownParagraph {
         margin: 0;
     }
 
-    TranscriptMessageWidget > .transcript-message-body > MarkdownFence {
+    TranscriptMessageWidget > .transcript-markdown-body > MarkdownFence {
         margin: 0;
         background: transparent;
     }
 
-    TranscriptMessageWidget > .transcript-message-body > MarkdownFence > Label {
+    TranscriptMessageWidget > .transcript-markdown-body > MarkdownFence > Label {
         padding: 0;
     }
     """
@@ -185,18 +185,36 @@ class TranscriptMessageWidget(Horizontal):
     def compose(self) -> Any:
         gutter = NonSelectableStatic("▌", classes="transcript-message-gutter")
         gutter.styles.color = self._role_style.border
-        body = ThemedMarkdownWidget(
-            self._markdown_text,
-            theme=self._theme,
-            classes="transcript-message-body",
-        )
-        foreground, background = _split_rich_style_colors(self._role_style.body)
-        if foreground:
-            body.styles.color = foreground
-        if background:
-            body.styles.background = background
+        body = self._body_widget()
         yield gutter
         yield body
+
+    def _body_widget(self) -> Static | ThemedMarkdownWidget:
+        if _use_plain_transcript_body(self.item):
+            body = Static(
+                Text(
+                    self.selection_text,
+                    style=self._role_style.body,
+                    overflow="fold",
+                    no_wrap=False,
+                ),
+                expand=True,
+                shrink=True,
+                markup=False,
+                classes="transcript-message-body transcript-plain-body",
+            )
+        else:
+            body = ThemedMarkdownWidget(
+                self._markdown_text,
+                theme=self._theme,
+                classes="transcript-message-body transcript-markdown-body",
+            )
+            foreground, background = _split_rich_style_colors(self._role_style.body)
+            if foreground:
+                body.styles.color = foreground
+            if background:
+                body.styles.background = background
+        return body
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
         """Return selected plain text from this message, not rendered Markdown markup."""
@@ -213,7 +231,7 @@ class StreamingTranscriptMessageWidget(ThemedMarkdownWidget):
     StreamingTranscriptMessageWidget {
         width: 1fr;
         height: auto;
-        margin: 1 1 2 1;
+        margin: 1 1 1 1;
         padding: 0 1 0 0;
     }
     """
@@ -515,6 +533,11 @@ def _split_rich_style_colors(style: str) -> tuple[str | None, str | None]:
     foreground = text_style.color.name if text_style.color is not None else None
     background = text_style.bgcolor.name if text_style.bgcolor is not None else None
     return foreground, background
+
+
+def _use_plain_transcript_body(item: ChatItem) -> bool:
+    """Return whether a transcript item can use fast selectable plain text."""
+    return item.role in {"user", "tool", "skill", "error"}
 
 
 def _transcript_item_markdown(
