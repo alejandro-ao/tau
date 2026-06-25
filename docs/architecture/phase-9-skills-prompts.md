@@ -141,8 +141,10 @@ after the command is available as `{{ arguments }}` or `{{ args }}`:
 Review {{ arguments }} for correctness.
 ```
 
-If the prompt template has no placeholders, Tau appends the invocation arguments
-after a blank line.
+If the prompt template has no `{{ arguments }}` or `{{ args }}` placeholder,
+Tau appends the invocation arguments after a blank line. Other placeholders are
+left blank during slash-command expansion so a custom prompt can include optional
+fields without crashing the TUI.
 
 Template variables use simple `{{ variable }}` placeholders:
 
@@ -162,7 +164,9 @@ text = render_prompt_template(
 )
 ```
 
-Missing variables raise `ResourceError`; extra variables are ignored.
+Missing variables raise `ResourceError`; extra variables are ignored. This strict
+behavior applies to direct rendering. Slash-command expansion is more forgiving
+and renders missing custom variables as blank text.
 
 ## Boundary
 
