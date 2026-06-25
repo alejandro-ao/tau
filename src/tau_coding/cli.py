@@ -46,6 +46,7 @@ from tau_coding.session_export import (
     normalize_export_format,
 )
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
+from tau_coding.shell_config import load_shell_settings
 from tau_coding.thinking import DEFAULT_THINKING_LEVEL
 from tau_coding.tui import run_tui_app
 
@@ -421,6 +422,7 @@ async def run_openai_print_mode(
 ) -> bool:
     """Run print mode with the OpenAI-compatible provider configured from the environment."""
     settings = load_provider_settings()
+    shell_settings = load_shell_settings()
     selection = resolve_provider_selection(settings, provider_name=provider_name, model=model)
     provider = create_model_provider(
         selection.provider,
@@ -442,6 +444,7 @@ async def run_openai_print_mode(
             provider_name=selection.provider.name,
             provider_settings=settings,
             runtime_provider_config=selection.provider,
+            shell_command_prefix=shell_settings.shell_command_prefix,
         )
     finally:
         await provider.aclose()
@@ -461,6 +464,7 @@ async def run_print_mode(
     provider_name: str = DEFAULT_PROVIDER_NAME,
     provider_settings: ProviderSettings | None = None,
     runtime_provider_config: ProviderConfig | None = None,
+    shell_command_prefix: str | None = None,
 ) -> bool:
     """Run one non-interactive prompt and print streamed events.
 
@@ -479,6 +483,7 @@ async def run_print_mode(
             provider_name=provider_name,
             provider_settings=provider_settings,
             runtime_provider_config=runtime_provider_config,
+            shell_command_prefix=shell_command_prefix,
         )
     )
     renderer = create_event_renderer(output)

@@ -405,6 +405,27 @@ async def test_terminal_command_can_run_without_context(tmp_path: Path) -> None:
     assert not any(isinstance(entry, MessageEntry) for entry in entries)
 
 
+@pytest.mark.anyio
+async def test_terminal_command_uses_configured_shell_command_prefix(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=storage,
+            cwd=tmp_path,
+            shell_command_prefix="shopt -s expand_aliases\nalias greet='printf terminal-alias'",
+        )
+    )
+
+    result = await session.run_terminal_command("greet", add_to_context=False)
+
+    assert result.ok is True
+    assert result.output == "terminal-alias"
+    assert result.added_to_context is False
+
+
 def test_parse_terminal_command_prefixes() -> None:
     assert parse_terminal_command("! pwd") is not None
     add_request = parse_terminal_command("! pwd")

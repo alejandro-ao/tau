@@ -190,6 +190,7 @@ class CodingSessionConfig:
     auto_compact_token_threshold: int | None = None
     auto_compact_enabled: bool = True
     thinking_level: ThinkingLevel = DEFAULT_THINKING_LEVEL
+    shell_command_prefix: str | None = None
 
 
 class CodingSession:
@@ -1057,7 +1058,10 @@ class CodingSession:
         if not normalized_command:
             raise ValueError("Terminal command cannot be empty")
 
-        bash_tool = create_bash_tool(cwd=self.cwd)
+        bash_tool = create_bash_tool(
+            cwd=self.cwd,
+            shell_command_prefix=self._config.shell_command_prefix,
+        )
         result = await bash_tool.execute({"command": normalized_command})
         exit_code = None
         if result.data is not None:

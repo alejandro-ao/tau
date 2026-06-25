@@ -15,6 +15,7 @@ Important files and directories:
 
 ```text
 ~/.tau/providers.json
+~/.tau/settings.json
 ~/.tau/tui.json
 ~/.tau/sessions/
 ~/.tau/skills/
@@ -124,6 +125,34 @@ requested provider/default/scoped-model change, write atomically, and keep a
 best-effort `providers.json.bak` backup of the previous file. This prevents an
 older running Tau process from saving stale provider settings over newer custom
 providers or scoped models.
+
+## Shell Settings
+
+Input-bar terminal commands run in non-interactive shell mode, so aliases from
+files such as `~/.zshrc` or `~/.bashrc` are not loaded automatically. Tau keeps
+that behavior explicit to avoid running arbitrary startup-file side effects
+before every terminal command.
+
+To opt in, add a `shellCommandPrefix` to:
+
+```text
+~/.tau/settings.json
+```
+
+For example, to enable aliases declared in `~/.zshrc`:
+
+```json
+{
+  "shellCommandPrefix": "shopt -s expand_aliases\neval \"$(grep '^alias ' ~/.zshrc)\""
+}
+```
+
+Adjust the path to `~/.bashrc` or another file if that is where your aliases
+live. The example imports only lines beginning with `alias `; Tau does not
+source the full startup file for terminal input commands.
+
+Tau also accepts the snake_case key `shell_command_prefix` for consistency with
+other Tau settings.
 
 ## TUI Settings
 

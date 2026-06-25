@@ -1,4 +1,5 @@
 import asyncio
+import shlex
 from pathlib import Path
 from time import monotonic
 
@@ -157,6 +158,27 @@ async def test_bash_tool_captures_stdout_and_exit_code(tmp_path: Path) -> None:
     assert result.data is not None
     assert result.data["exit_code"] == 0
     assert result.data["timed_out"] is False
+
+
+@pytest.mark.anyio
+async def test_bash_tool_applies_opt_in_shell_command_prefix(tmp_path: Path) -> None:
+    rc_path = tmp_path / ".zshrc"
+    marker = tmp_path / "sourced"
+    rc_path.write_text(
+        "alias greet='printf alias-output'\n"
+        f"touch {shlex.quote(str(marker))}\n",
+        encoding="utf-8",
+    )
+    prefix = f"shopt -s expand_aliases\neval \"$(grep '^alias ' {shlex.quote(str(rc_path))})\""
+    tool = create_bash_tool(cwd=tmp_path, shell_command_prefix=prefix)
+
+    result = await tool.execute({"command": "greet"})
+
+    assert result.ok is True
+    assert result.content == "alias-output"
+    assert result.data is not None
+    assert result.data["shell_command_prefix_applied"] is True
+    assert not marker.exists()
 
 
 @pytest.mark.anyio
