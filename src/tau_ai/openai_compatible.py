@@ -20,7 +20,12 @@ from tau_ai.events import (
     ProviderToolCallEvent,
 )
 from tau_ai.provider import CancellationToken
-from tau_ai.retry import provider_retry_event, retry_delay_seconds, wait_for_retry
+from tau_ai.retry import (
+    is_transient_status,
+    provider_retry_event,
+    retry_delay_seconds,
+    wait_for_retry,
+)
 
 
 class OpenAICompatibleProvider:
@@ -366,4 +371,4 @@ def _thinking_delta_text(delta: Mapping[str, Any]) -> str:
 
 
 def _is_transient_status(status_code: int) -> bool:
-    return status_code in {408, 409, 425, 429} or status_code >= 500
+    return is_transient_status(status_code)

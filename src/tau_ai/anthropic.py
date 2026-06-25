@@ -20,7 +20,12 @@ from tau_ai.events import (
     ProviderToolCallEvent,
 )
 from tau_ai.provider import CancellationToken
-from tau_ai.retry import provider_retry_event, retry_delay_seconds, wait_for_retry
+from tau_ai.retry import (
+    is_transient_status,
+    provider_retry_event,
+    retry_delay_seconds,
+    wait_for_retry,
+)
 
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 4096
@@ -117,6 +122,7 @@ class AnthropicProvider:
                         content_parts: list[str] = []
                         tool_builders: dict[int, _AnthropicToolBuilder] = {}
                         finish_reason: str | None = None
+                        retry_stream = False
 
                         async for line in response.aiter_lines():
                             if signal is not None and signal.is_cancelled():
@@ -180,8 +186,38 @@ class AnthropicProvider:
                                 message = "Provider returned an error"
                                 if isinstance(error, Mapping):
                                     message = _string_or_empty(error.get("message")) or message
-                                yield ProviderErrorEvent(message=message, data=chunk)
+                                error_type = _anthropic_error_type(chunk)
+                                if (
+                                    not emitted_content
+                                    and self._should_retry(attempt, error_type=error_type)
+                                ):
+                                    delay = retry_delay_seconds(
+                                        attempt,
+                                        max_delay_seconds=(
+                                            self._config.max_retry_delay_seconds
+                                        ),
+                                    )
+                                    yield provider_retry_event(
+                                        attempt=attempt,
+                                        max_retries=self._config.max_retries,
+                                        delay_seconds=delay,
+                                        reason=message,
+                                        data={"event": chunk},
+                                    )
+                                    attempt += 1
+                                    if not await wait_for_retry(delay, signal=signal):
+                                        return
+                                    retry_stream = True
+                                    break
+                                yield ProviderErrorEvent(
+                                    message=message,
+                                    retryable=_is_transient_anthropic_error(error_type),
+                                    data={"event": chunk, "attempts": attempt + 1},
+                                )
                                 return
+
+                        if retry_stream:
+                            continue
 
                         tool_calls = [
                             builder.build(index)
@@ -231,10 +267,20 @@ class AnthropicProvider:
             self._client = httpx.AsyncClient(timeout=self._config.timeout_seconds)
         return self._client
 
-    def _should_retry(self, attempt: int, *, status_code: int | None = None) -> bool:
+    def _should_retry(
+        self,
+        attempt: int,
+        *,
+        status_code: int | None = None,
+        error_type: str | None = None,
+    ) -> bool:
         if attempt >= self._config.max_retries:
             return False
-        return status_code is None or status_code in {408, 409, 429, 500, 502, 503, 504}
+        if status_code is not None:
+            return is_transient_status(status_code)
+        if error_type is not None:
+            return _is_transient_anthropic_error(error_type)
+        return True
 
 
 class _AnthropicToolBuilder:
@@ -335,6 +381,24 @@ def _loads_object(text: str) -> dict[str, Any] | None:
     except ValueError:
         return None
     return value if isinstance(value, dict) else None
+
+
+def _anthropic_error_type(chunk: Mapping[str, Any]) -> str | None:
+    error = chunk.get("error")
+    if isinstance(error, Mapping):
+        value = error.get("type")
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _is_transient_anthropic_error(error_type: str | None) -> bool:
+    return error_type in {
+        "api_error",
+        "overloaded_error",
+        "rate_limit_error",
+        "timeout_error",
+    }
 
 
 def _string_or_empty(value: object) -> str:

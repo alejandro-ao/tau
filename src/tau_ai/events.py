@@ -75,6 +75,7 @@ class ProviderErrorEvent(BaseModel):
 
     type: Literal["error"] = "error"
     message: str
+    retryable: bool = False
     data: dict[str, JSONValue] | None = None
 
 
