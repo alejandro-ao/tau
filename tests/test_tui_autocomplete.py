@@ -157,7 +157,20 @@ def test_skill_name_completion_preserves_request_text_for_incomplete_name() -> N
 
 
 def test_skill_name_completion_hides_after_completed_skill_command_space() -> None:
-    state = build_completion_state(
+    trailing_space_state = build_completion_state(
+        "/skill:review ",
+        command_registry=create_default_command_registry(),
+        skills=(
+            Skill(
+                name="review",
+                path=Path("review.md"),
+                content="Review code",
+                description="Review code",
+            ),
+        ),
+        prompt_templates=(),
+    )
+    request_state = build_completion_state(
         "/skill:review fix tests",
         command_registry=create_default_command_registry(),
         skills=(
@@ -171,11 +184,25 @@ def test_skill_name_completion_hides_after_completed_skill_command_space() -> No
         prompt_templates=(),
     )
 
-    assert state.items == ()
+    assert trailing_space_state.items == ()
+    assert request_state.items == ()
 
 
 def test_custom_prompt_completion_hides_after_completed_prompt_command_space() -> None:
-    state = build_completion_state(
+    trailing_space_state = build_completion_state(
+        "/example ",
+        command_registry=create_default_command_registry(),
+        skills=(),
+        prompt_templates=(
+            PromptTemplate(
+                name="example",
+                path=Path("example.md"),
+                content="Example prompt.",
+                description="Run example.",
+            ),
+        ),
+    )
+    request_state = build_completion_state(
         "/example fix tests",
         command_registry=create_default_command_registry(),
         skills=(),
@@ -189,7 +216,26 @@ def test_custom_prompt_completion_hides_after_completed_prompt_command_space() -
         ),
     )
 
-    assert state.items == ()
+    assert trailing_space_state.items == ()
+    assert request_state.items == ()
+
+
+def test_builtin_command_argument_completion_wins_over_custom_prompt_name() -> None:
+    state = build_completion_state(
+        "/model fak",
+        command_registry=create_default_command_registry(),
+        skills=(),
+        prompt_templates=(
+            PromptTemplate(
+                name="model",
+                path=Path("model.md"),
+                content="Choose a model.",
+            ),
+        ),
+        model_names=("fake-model",),
+    )
+
+    assert [item.display for item in state.items] == ["fake-model"]
 
 
 def test_custom_prompt_completion_reappears_when_deleting_back_to_command_token() -> None:

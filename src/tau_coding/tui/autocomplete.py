@@ -118,9 +118,6 @@ def build_completion_state(
     if ":" in token:
         return CompletionState()
 
-    if has_argument_text and _matches_prompt_template_command(token, prompt_templates):
-        return CompletionState()
-
     argument_completions = _command_argument_completions(
         text=text,
         token_end=token_end,
@@ -133,6 +130,9 @@ def build_completion_state(
     )
     if argument_completions is not None:
         return CompletionState(argument_completions)
+
+    if has_argument_text and _matches_prompt_template_command(token, prompt_templates):
+        return CompletionState()
 
     return CompletionState(
         _command_completions(
