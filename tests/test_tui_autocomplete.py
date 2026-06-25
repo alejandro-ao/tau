@@ -136,7 +136,7 @@ def test_skill_command_is_available_for_command_completion() -> None:
     assert state.selected.apply("/ski") == "/skill:"
 
 
-def test_skill_name_completion_preserves_request_text() -> None:
+def test_skill_name_completion_preserves_request_text_for_incomplete_name() -> None:
     state = build_completion_state(
         "/skill:r fix tests",
         command_registry=create_default_command_registry(),
@@ -154,6 +154,60 @@ def test_skill_name_completion_preserves_request_text() -> None:
     assert [item.display for item in state.items] == ["/skill:review"]
     assert state.selected is not None
     assert state.selected.apply("/skill:r fix tests") == "/skill:review fix tests"
+
+
+def test_skill_name_completion_hides_after_completed_skill_command_space() -> None:
+    state = build_completion_state(
+        "/skill:review fix tests",
+        command_registry=create_default_command_registry(),
+        skills=(
+            Skill(
+                name="review",
+                path=Path("review.md"),
+                content="Review code",
+                description="Review code",
+            ),
+        ),
+        prompt_templates=(),
+    )
+
+    assert state.items == ()
+
+
+def test_custom_prompt_completion_hides_after_completed_prompt_command_space() -> None:
+    state = build_completion_state(
+        "/example fix tests",
+        command_registry=create_default_command_registry(),
+        skills=(),
+        prompt_templates=(
+            PromptTemplate(
+                name="example",
+                path=Path("example.md"),
+                content="Example prompt.",
+                description="Run example.",
+            ),
+        ),
+    )
+
+    assert state.items == ()
+
+
+def test_custom_prompt_completion_reappears_when_deleting_back_to_command_token() -> None:
+    state = build_completion_state(
+        "/exa",
+        command_registry=create_default_command_registry(),
+        skills=(),
+        prompt_templates=(
+            PromptTemplate(
+                name="example",
+                path=Path("example.md"),
+                content="Example prompt.",
+                description="Run example.",
+            ),
+        ),
+    )
+
+    assert [item.display for item in state.items] == ["/example"]
 
 
 def test_completion_selection_wraps() -> None:
