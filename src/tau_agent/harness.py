@@ -9,7 +9,7 @@ from typing import Literal
 
 from tau_agent.events import AgentEvent, MessageEndEvent, MessageStartEvent, QueueUpdateEvent
 from tau_agent.loop import run_agent_loop
-from tau_agent.messages import AgentMessage, UserMessage
+from tau_agent.messages import AgentMessage, AssistantMessage, ToolResultMessage, UserMessage
 from tau_agent.tools import AgentTool
 from tau_ai.provider import ModelProvider
 
@@ -175,6 +175,7 @@ class AgentHarness:
     def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
         """Append a user message and run the agent loop."""
         self._ensure_not_running()
+        self._append_interrupted_tool_results()
         self._running = True
         message = UserMessage(content=content)
         self._messages.append(message)
@@ -183,6 +184,7 @@ class AgentHarness:
     def continue_(self) -> AsyncIterator[AgentEvent]:
         """Continue the agent loop without appending a new user message."""
         self._ensure_not_running()
+        self._append_interrupted_tool_results()
         self._running = True
         return self._run()
 
@@ -213,6 +215,8 @@ class AgentHarness:
                         yield prompt_event
                     pending_prompt_event = None
         finally:
+            if signal.is_cancelled():
+                self._append_interrupted_tool_results()
             if self._current_signal is signal:
                 self._current_signal = None
             self._running = False
@@ -243,3 +247,51 @@ class AgentHarness:
             queue.clear()
             return messages
         return (queue.popleft(),)
+
+    def _append_interrupted_tool_results(self) -> None:
+        """Repair a transcript left mid-tool-call by an interrupted run.
+
+        OpenAI-compatible providers reject a transcript where an assistant tool
+        call is not followed by a matching tool result. If the UI cancels the
+        worker while a tool is still running, the normal loop may not get a
+        chance to append the cancellation result, so repair that gap before the
+        next model request.
+        """
+        assistant_index = _latest_open_tool_call_assistant_index(self._messages)
+        if assistant_index is None:
+            return
+
+        assistant = self._messages[assistant_index]
+        if not isinstance(assistant, AssistantMessage):
+            return
+
+        returned_ids = {
+            message.tool_call_id
+            for message in self._messages[assistant_index + 1 :]
+            if isinstance(message, ToolResultMessage)
+        }
+        for tool_call in assistant.tool_calls:
+            if tool_call.id in returned_ids:
+                continue
+            message = "Tool call interrupted by user"
+            self._messages.append(
+                ToolResultMessage(
+                    tool_call_id=tool_call.id,
+                    name=tool_call.name,
+                    content=message,
+                    ok=False,
+                    error=message,
+                )
+            )
+
+
+def _latest_open_tool_call_assistant_index(messages: Sequence[AgentMessage]) -> int | None:
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if isinstance(message, UserMessage):
+            return None
+        if isinstance(message, AssistantMessage):
+            if message.tool_calls:
+                return index
+            return None
+    return None

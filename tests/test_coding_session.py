@@ -238,6 +238,100 @@ async def test_prompt_logs_unexpected_agent_call_exception(tmp_path: Path) -> No
 
 
 @pytest.mark.anyio
+async def test_prompt_logs_error_event_diagnostic_data(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    tau_paths = TauPaths(home=tmp_path / "tau-home", agents_home=tmp_path / "agents-home")
+    provider = FakeProvider(
+        [[ProviderErrorEvent(message="provider failed", data={"status_code": 400, "body": "bad request"})]]
+    )
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=provider,
+            model="fake",
+            system="You are Tau.",
+            storage=storage,
+            cwd=tmp_path,
+            provider_name="fake-provider",
+            session_id="session-1",
+            resource_paths=TauResourcePaths(root=tau_paths.home, paths=tau_paths),
+        )
+    )
+
+    await _collect_session_events(session.prompt("Hello"))
+
+    log_path = tau_paths.agent_calls_log_path
+    assert session.last_diagnostic_log_path == log_path
+    entry = json.loads(log_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert entry["kind"] == "error_event"
+    assert entry["error"] == {
+        "message": "provider failed",
+        "recoverable": False,
+        "data": {"status_code": 400, "body": "bad request"},
+    }
+    assert "Hello" not in log_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.anyio
+async def test_prompt_repairs_loaded_session_with_interrupted_tool_call(
+    tmp_path: Path,
+) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    user_entry = MessageEntry(message=UserMessage(content="Read README.md"))
+    await storage.append(user_entry)
+    tool_call = ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
+    assistant_entry = MessageEntry(
+        parent_id=user_entry.id,
+        message=AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
+    )
+    await storage.append(assistant_entry)
+    await storage.append(LeafEntry(parent_id=assistant_entry.id, entry_id=assistant_entry.id))
+
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Recovered.")),
+            ]
+        ]
+    )
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=provider,
+            model="fake",
+            system="You are Tau.",
+            storage=storage,
+            cwd=tmp_path,
+        )
+    )
+
+    await _collect_session_events(session.prompt("What happened?"))
+
+    expected_repair = ToolResultMessage(
+        tool_call_id="call-1",
+        name="read",
+        content="Tool call interrupted by user",
+        ok=False,
+        error="Tool call interrupted by user",
+    )
+    assert provider.calls[0][2] == [
+        UserMessage(content="Read README.md"),
+        AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
+        expected_repair,
+        UserMessage(content="What happened?"),
+    ]
+
+    entries = await storage.read_all()
+    message_entries = [entry for entry in entries if entry.type == "message"]
+    assert [entry.message for entry in message_entries] == [
+        UserMessage(content="Read README.md"),
+        AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
+        expected_repair,
+        UserMessage(content="What happened?"),
+        AssistantMessage(content="Recovered."),
+    ]
+
+
+@pytest.mark.anyio
 async def test_prompt_persists_user_assistant_and_leaf_entries(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(tmp_path / "session.jsonl")
     provider = FakeProvider(

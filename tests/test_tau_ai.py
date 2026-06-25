@@ -475,6 +475,86 @@ async def test_openai_compatible_provider_does_not_retry_non_transient_status() 
 
 
 @pytest.mark.anyio
+async def test_openai_codex_provider_includes_http_error_detail_in_message() -> None:
+    async def credentials() -> OpenAICodexCredentials:
+        return OpenAICodexCredentials(access_token="access-token", account_id="account-1")
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": {"message": "The requested model does not exist."}},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICodexProvider(
+            OpenAICodexConfig(
+                credential_resolver=credentials,
+                base_url="https://chatgpt.test/backend-api",
+                max_retries=0,
+            ),
+            client=client,
+        )
+
+        events = await _collect(
+            provider.stream_response(
+                model="gpt-5.5",
+                system="You are Tau.",
+                messages=[UserMessage(content="Say hello")],
+                tools=[],
+            )
+        )
+
+    assert isinstance(events[-1], ProviderErrorEvent)
+    assert events[-1].message == (
+        "OpenAI Codex request failed with status 400: "
+        "The requested model does not exist."
+    )
+    assert events[-1].data == {
+        "status_code": 400,
+        "body": '{"error":{"message":"The requested model does not exist."}}',
+        "attempts": 1,
+    }
+
+
+@pytest.mark.anyio
+async def test_openai_codex_provider_includes_plain_http_error_body_in_message() -> None:
+    async def credentials() -> OpenAICodexCredentials:
+        return OpenAICodexCredentials(access_token="access-token", account_id="account-1")
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text="bad request details")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICodexProvider(
+            OpenAICodexConfig(
+                credential_resolver=credentials,
+                base_url="https://chatgpt.test/backend-api",
+                max_retries=0,
+            ),
+            client=client,
+        )
+
+        events = await _collect(
+            provider.stream_response(
+                model="gpt-5.5",
+                system="You are Tau.",
+                messages=[UserMessage(content="Say hello")],
+                tools=[],
+            )
+        )
+
+    assert isinstance(events[-1], ProviderErrorEvent)
+    assert events[-1].message == (
+        "OpenAI Codex request failed with status 400: bad request details"
+    )
+    assert events[-1].data == {
+        "status_code": 400,
+        "body": "bad request details",
+        "attempts": 1,
+    }
+
+
+@pytest.mark.anyio
 async def test_openai_codex_provider_formats_request_and_streams_text() -> None:
     requests: list[httpx.Request] = []
 

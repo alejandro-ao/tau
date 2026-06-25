@@ -143,11 +143,12 @@ class OpenAICodexProvider:
                                     return
                                 continue
                             yield ProviderErrorEvent(
-                                message=(
-                                    "OpenAI Codex request failed with status "
-                                    f"{response.status_code}"
+                                message=_codex_http_error_message(
+                                    status_code=response.status_code,
+                                    body=body_text,
                                 ),
                                 data={
+                                    "status_code": response.status_code,
                                     "body": body_text,
                                     "attempts": attempt + 1,
                                 },
@@ -642,6 +643,43 @@ def _finish_reason_from_response(event: Mapping[str, Any]) -> str | None:
     if isinstance(status, str):
         return status
     return None
+
+
+def _codex_http_error_message(*, status_code: int, body: str) -> str:
+    prefix = f"OpenAI Codex request failed with status {status_code}"
+    detail = _http_error_detail(body)
+    if detail:
+        return f"{prefix}: {detail}"
+    return prefix
+
+
+def _http_error_detail(body: str) -> str:
+    parsed = _loads_object(body)
+    if parsed is not None:
+        detail = _error_detail_from_mapping(parsed)
+        if detail:
+            return detail
+    return body.strip()[:1000]
+
+
+def _error_detail_from_mapping(value: Mapping[str, Any]) -> str:
+    error = value.get("error")
+    if isinstance(error, Mapping):
+        message = error.get("message")
+        if isinstance(message, str) and message:
+            return message
+        code = error.get("code")
+        if isinstance(code, str) and code:
+            return code
+    for key in ("message", "detail", "error"):
+        detail = value.get(key)
+        if isinstance(detail, str) and detail:
+            return detail
+        if isinstance(detail, Mapping):
+            nested = _error_detail_from_mapping(detail)
+            if nested:
+                return nested
+    return ""
 
 
 def _response_error_message(event: Mapping[str, Any]) -> str:

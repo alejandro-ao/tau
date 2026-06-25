@@ -8,6 +8,8 @@ from tau_agent import (
     AssistantMessage,
     MessageEndEvent,
     MessageStartEvent,
+    ToolCall,
+    ToolResultMessage,
     UserMessage,
 )
 from tau_agent.harness import AgentHarness, AgentHarnessConfig
@@ -194,6 +196,81 @@ async def test_cancel_requests_cancellation_for_current_run() -> None:
         "agent_end",
     ]
     assert harness.messages == (UserMessage(content="Hi"),)
+
+
+@pytest.mark.anyio
+async def test_cancelled_tool_run_repairs_transcript_before_next_prompt() -> None:
+    async def executor(
+        arguments: Mapping[str, JSONValue],
+        signal: object | None = None,
+    ) -> AgentToolResult:
+        del arguments, signal
+        return AgentToolResult(tool_call_id="call-1", name="read", ok=True, content="ok")
+
+    tool = AgentTool(
+        name="read",
+        description="Read a file.",
+        input_schema={"type": "object"},
+        executor=executor,
+    )
+    tool_call = ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="I'll read it.", tool_calls=[tool_call])
+                ),
+            ],
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Recovered.")),
+            ],
+        ]
+    )
+    harness = AgentHarness(
+        AgentHarnessConfig(
+            provider=provider,
+            model="fake",
+            system="You are Tau.",
+            tools=[tool],
+        )
+    )
+
+    stream = harness.prompt("Read README.md")
+    async for event in stream:
+        if event.type == "tool_execution_start":
+            harness.cancel()
+            await stream.aclose()
+            break
+
+    assert harness.messages == (
+        UserMessage(content="Read README.md"),
+        AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
+        ToolResultMessage(
+            tool_call_id="call-1",
+            name="read",
+            content="Tool call interrupted by user",
+            ok=False,
+            error="Tool call interrupted by user",
+        ),
+    )
+
+    events = [event async for event in harness.prompt("What happened?")]
+
+    assert events[-1].type == "agent_end"
+    assert provider.calls[1][2] == [
+        UserMessage(content="Read README.md"),
+        AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
+        ToolResultMessage(
+            tool_call_id="call-1",
+            name="read",
+            content="Tool call interrupted by user",
+            ok=False,
+            error="Tool call interrupted by user",
+        ),
+        UserMessage(content="What happened?"),
+    ]
 
 
 @pytest.mark.anyio
