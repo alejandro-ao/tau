@@ -1064,27 +1064,60 @@ async def test_transcript_message_widget_extracts_plain_text_selection() -> None
 
 
 @pytest.mark.anyio
-async def test_streaming_transcript_deltas_do_not_force_scroll_end() -> None:
-    app = TauTuiApp(FakeSession(messages=[]))
+async def test_streaming_transcript_deltas_follow_when_at_bottom() -> None:
+    app = TauTuiApp(
+        FakeSession(
+            messages=[
+                UserMessage(content=f"message {index}\n" + "line\n" * 4)
+                for index in range(12)
+            ]
+        )
+    )
 
-    async with app.run_test(size=(40, 20)) as pilot:
+    async with app.run_test(size=(40, 12)) as pilot:
         await pilot.pause()
         transcript = app.query_one("#transcript", TranscriptView)
-        forced_scrolls = 0
-        original_scroll_end = transcript.scroll_end
+        transcript.follow_output()
+        await pilot.pause()
+        assert transcript.is_vertical_scroll_end
 
-        def tracking_scroll_end(*args: object, **kwargs: object) -> None:
-            nonlocal forced_scrolls
-            forced_scrolls += 1
-            original_scroll_end(*args, **kwargs)
+        await transcript.append_assistant_delta("alpha\n" * 20)
+        for _ in range(5):
+            await pilot.pause()
+            if transcript.is_vertical_scroll_end:
+                break
 
-        transcript.scroll_end = tracking_scroll_end  # type: ignore[method-assign]
+        assert transcript.is_vertical_scroll_end
 
-        await transcript.append_assistant_delta("alpha")
-        await transcript.append_assistant_delta(" beta")
+
+@pytest.mark.anyio
+async def test_streaming_transcript_deltas_preserve_user_scrollback() -> None:
+    app = TauTuiApp(
+        FakeSession(
+            messages=[
+                UserMessage(content=f"message {index}\n" + "line\n" * 4)
+                for index in range(12)
+            ]
+        )
+    )
+
+    async with app.run_test(size=(40, 12)) as pilot:
+        await pilot.pause()
+        transcript = app.query_one("#transcript", TranscriptView)
+        transcript.follow_output()
+        await pilot.pause()
+        assert transcript.max_scroll_y > 0
+
+        transcript.scroll_to(y=max(0, transcript.max_scroll_y - 5), animate=False, immediate=True)
+        await pilot.pause()
+        scrollback_y = transcript.scroll_y
+        assert not transcript.is_vertical_scroll_end
+
+        await transcript.append_assistant_delta("alpha\n" * 20)
         await pilot.pause()
 
-    assert forced_scrolls == 0
+        assert transcript.scroll_y == scrollback_y
+        assert not transcript.is_vertical_scroll_end
 
 
 
