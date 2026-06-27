@@ -1982,6 +1982,57 @@ async def test_prompt_arrow_keys_move_between_lines_without_completions() -> Non
 
 
 @pytest.mark.anyio
+async def test_tui_app_up_arrow_recalls_last_submitted_prompt_when_empty() -> None:
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", TextArea)
+        prompt.text = "explain this repo"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert prompt.text == ""
+
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.text == "explain this repo"
+        assert prompt.cursor_location == (0, len("explain this repo"))
+
+
+@pytest.mark.anyio
+async def test_tui_app_recalled_prompt_edits_do_not_mutate_history_until_submit() -> None:
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", TextArea)
+        prompt.text = "first prompt"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.press("up")
+        await pilot.pause()
+        prompt.text = "edited prompt"
+        prompt.text = ""
+
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.text == "first prompt"
+
+        prompt.text = "edited prompt"
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert session.prompt_texts == ["first prompt", "edited prompt"]
+        assert prompt.text == "edited prompt"
+
+
+@pytest.mark.anyio
 async def test_tui_app_submits_multiline_prompt_with_enter() -> None:
     session = FakeSession(
         events=[

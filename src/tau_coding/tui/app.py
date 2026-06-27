@@ -171,6 +171,8 @@ class CompletionActionTarget(Protocol):
 
     def action_edit_queued_follow_up(self) -> bool: ...
 
+    def action_recall_prompt_history(self) -> bool: ...
+
     async def action_submit_prompt(self) -> None: ...
 
     async def action_submit_follow_up(self) -> None: ...
@@ -258,7 +260,10 @@ class PromptInput(TextArea):
         """Select the previous app-level completion or move up in the prompt."""
         if self._has_completion_options():
             self._completion_target().action_completion_previous()
-        elif self._completion_target().action_edit_queued_follow_up():
+        elif (
+            self._completion_target().action_edit_queued_follow_up()
+            or self._completion_target().action_recall_prompt_history()
+        ):
             return
         else:
             self.action_cursor_up()
@@ -1784,6 +1789,7 @@ class TauTuiApp(App[None]):
         self._activity_timer: Timer | None = None
         self._active_notification_keys: set[tuple[str, str]] = set()
         self._supports_pyperclip: bool | None = None
+        self._prompt_history: list[str] = []
 
     def copy_to_clipboard(self, text: str) -> None:
         """Copy text using pyperclip when available, then Textual's fallback."""
@@ -2046,11 +2052,17 @@ class TauTuiApp(App[None]):
 
     def _submit_prompt(self, text: str) -> None:
         """Add a prompt to the transcript and start the agent worker."""
+        self._record_prompt_history(text)
         self._prompt_run_id += 1
         run_id = self._prompt_run_id
         self._follow_transcript_output()
         self._refresh()
         self._prompt_worker = self.run_worker(self._run_prompt(text, run_id), exclusive=True)
+
+    def _record_prompt_history(self, text: str) -> None:
+        """Store submitted user prompt text for prompt-editor recall."""
+        if text:
+            self._prompt_history.append(text)
 
     def _follow_transcript_output(self) -> None:
         """Put the transcript back in follow mode for explicit user actions."""
@@ -2123,6 +2135,7 @@ class TauTuiApp(App[None]):
         except Exception as exc:  # noqa: BLE001 - surface queueing failures in the TUI
             self._notify(f"Could not queue message: {exc}", severity="error")
             return
+        self._record_prompt_history(text)
         self._refresh()
 
     async def _run_prompt(self, text: str, run_id: int | None = None) -> None:
@@ -2325,6 +2338,8 @@ class TauTuiApp(App[None]):
         if not self._completion_state.items:
             if self.action_edit_queued_follow_up():
                 return
+            if self.action_recall_prompt_history():
+                return
             self.query_one("#prompt", PromptInput).action_cursor_up()
             return
         self._completion_state = self._completion_state.select_previous()
@@ -2348,6 +2363,18 @@ class TauTuiApp(App[None]):
         self._sync_queue_state()
         self._completion_state = self._build_completion_state(prompt.text)
         self._refresh()
+        return True
+
+    def action_recall_prompt_history(self) -> bool:
+        """Recall the most recent submitted prompt into an empty prompt editor."""
+        prompt = self.query_one("#prompt", PromptInput)
+        if prompt.text.strip() or not self._prompt_history:
+            return False
+        text = self._prompt_history[-1]
+        prompt.text = text
+        prompt.move_cursor(_text_end_location(text))
+        self._completion_state = self._build_completion_state(prompt.text)
+        self._refresh_completions()
         return True
 
     def action_open_command_palette(self) -> None:
