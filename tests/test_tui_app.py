@@ -4021,14 +4021,14 @@ async def test_run_tui_app_falls_back_to_first_credentialed_provider(
             calls.append("provider_closed")
 
     class FakeManager:
-        def create_session(
+        def prepare_session(
             self,
             *,
             cwd: Path,
             model: str,
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
-            calls.append(f"create:{cwd}:{model}:{provider_name}")
+            calls.append(f"prepare:{cwd}:{model}:{provider_name}")
             return record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
@@ -4085,7 +4085,7 @@ async def test_run_tui_app_falls_back_to_first_credentialed_provider(
 
     assert calls == [
         "provider:openai:gpt-5.5",
-        f"create:{tmp_path}:gpt-5.5:openai",
+        f"prepare:{tmp_path}:gpt-5.5:openai",
         "load",
         "run",
         "provider_closed",
@@ -4127,14 +4127,14 @@ async def test_run_tui_app_ignores_latest_directory_provider_model_for_new_sessi
             calls.append(f"latest:{cwd}")
             return latest_record
 
-        def create_session(
+        def prepare_session(
             self,
             *,
             cwd: Path,
             model: str,
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
-            calls.append(f"create:{cwd}:{model}:{provider_name}")
+            calls.append(f"prepare:{cwd}:{model}:{provider_name}")
             return created_record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
@@ -4188,7 +4188,7 @@ async def test_run_tui_app_ignores_latest_directory_provider_model_for_new_sessi
 
     assert calls == [
         "provider:openai:gpt-5",
-        f"create:{tmp_path}:gpt-5:openai",
+        f"prepare:{tmp_path}:gpt-5:openai",
         "load",
         "run",
         "provider_closed",
@@ -4237,14 +4237,14 @@ async def test_run_tui_app_does_not_start_new_session_from_scoped_model(
             calls.append(f"latest:{cwd}")
             return latest
 
-        def create_session(
+        def prepare_session(
             self,
             *,
             cwd: Path,
             model: str,
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
-            calls.append(f"create:{cwd}:{model}:{provider_name}")
+            calls.append(f"prepare:{cwd}:{model}:{provider_name}")
             return record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
@@ -4298,7 +4298,7 @@ async def test_run_tui_app_does_not_start_new_session_from_scoped_model(
 
     assert calls == [
         "provider:openai:gpt-5.5",
-        f"create:{tmp_path}:gpt-5.5:openai",
+        f"prepare:{tmp_path}:gpt-5.5:openai",
         "load",
         "run",
         "provider_closed",
@@ -4325,14 +4325,14 @@ async def test_run_tui_app_creates_new_session_by_default(
             calls.append("provider_closed")
 
     class FakeManager:
-        def create_session(
+        def prepare_session(
             self,
             *,
             cwd: Path,
             model: str,
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
-            calls.append(f"create:{cwd}:{model}:{provider_name}")
+            calls.append(f"prepare:{cwd}:{model}:{provider_name}")
             return record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
@@ -4347,6 +4347,7 @@ async def test_run_tui_app_creates_new_session_by_default(
         async def load(cls, config: object) -> str:
             assert config.provider_name == "local"  # type: ignore[attr-defined]
             assert config.auto_compact_token_threshold == 1000  # type: ignore[attr-defined]
+            assert config.index_on_first_persist is True  # type: ignore[attr-defined]
             calls.append("load")
             return "session"
 
@@ -4390,7 +4391,13 @@ async def test_run_tui_app_creates_new_session_by_default(
         session_manager=FakeManager(),
     )
 
-    assert calls == [f"create:{tmp_path}:local-model:local", "load", "run", "provider_closed"]
+    assert calls == [
+        f"prepare:{tmp_path}:local-model:local",
+        "get:new-session",
+        "load",
+        "run",
+        "provider_closed",
+    ]
 
 
 @pytest.mark.anyio
@@ -4409,14 +4416,14 @@ async def test_run_tui_app_opens_when_provider_login_is_missing(
     )
 
     class FakeManager:
-        def create_session(
+        def prepare_session(
             self,
             *,
             cwd: Path,
             model: str,
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
-            calls.append(f"create:{cwd}:{model}:{provider_name}")
+            calls.append(f"prepare:{cwd}:{model}:{provider_name}")
             return record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
@@ -4453,7 +4460,7 @@ async def test_run_tui_app_opens_when_provider_login_is_missing(
 
     await tui_app.run_tui_app(cwd=tmp_path, model=None, session_manager=FakeManager())
 
-    assert calls == [f"create:{tmp_path}:gpt-5.5:openai", "load:LoginRequiredProvider", "run"]
+    assert calls == [f"prepare:{tmp_path}:gpt-5.5:openai", "load:LoginRequiredProvider", "run"]
 
 
 @pytest.mark.anyio

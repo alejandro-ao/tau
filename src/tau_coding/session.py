@@ -190,6 +190,7 @@ class CodingSessionConfig:
     auto_compact_token_threshold: int | None = None
     auto_compact_enabled: bool = True
     thinking_level: ThinkingLevel = DEFAULT_THINKING_LEVEL
+    index_on_first_persist: bool = False
 
 
 class CodingSession:
@@ -952,7 +953,7 @@ class CodingSession:
         return f"Resumed session: {record.id}"
 
     async def new_session(self) -> str:
-        """Replace this session's active state with a newly indexed session."""
+        """Replace this session's active state with a pending unindexed session."""
         manager = self._config.session_manager
         if manager is None:
             raise ValueError("Session manager is not available")
@@ -972,7 +973,7 @@ class CodingSession:
                 current=self._thinking_level,
             )
 
-        record = manager.create_session(
+        record = manager.prepare_session(
             cwd=self.cwd,
             model=model,
             provider_name=provider_name,
@@ -989,6 +990,7 @@ class CodingSession:
                 provider_settings=self._provider_settings,
                 runtime_provider_config=runtime_provider_config,
                 thinking_level=thinking_level,
+                index_on_first_persist=True,
             )
         )
         self._config = replacement._config
@@ -1249,6 +1251,21 @@ class CodingSession:
         for entry in self._pending_initial_entries:
             await self._config.storage.append(entry)
         self._pending_initial_entries = ()
+        if self._config.index_on_first_persist:
+            self._index_current_session()
+
+    def _index_current_session(self) -> None:
+        if self._config.session_id is None or self._config.session_manager is None:
+            return
+        existing = self._config.session_manager.get_session(self._config.session_id)
+        if existing is not None:
+            return
+        self._config.session_manager.create_session(
+            cwd=self.cwd,
+            model=self.model,
+            provider_name=self.provider_name,
+            session_id=self._config.session_id,
+        )
 
     async def _try_auto_compact(
         self,

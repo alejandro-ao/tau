@@ -2334,9 +2334,73 @@ async def test_session_new_session_uses_default_provider_model(
     assert message.startswith("Started new session: ")
     assert session.provider_name == "openai"
     assert session.model == "gpt-5"
-    assert manager.get_session(session.session_id).provider_name == "openai"  # type: ignore[arg-type]
-    assert manager.get_session(session.session_id).model == "gpt-5"  # type: ignore[arg-type]
+    assert manager.get_session(session.session_id) is None
     assert created == [("openai", "gpt-5")]
+
+
+@pytest.mark.anyio
+async def test_session_new_session_is_indexed_after_first_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
+    current_record = manager.create_session(cwd=tmp_path, model="fake", provider_name="fake")
+    settings = ProviderSettings(
+        default_provider="openai",
+        providers=(
+            OpenAICompatibleProviderConfig(
+                name="openai",
+                models=("gpt-5",),
+                default_model="gpt-5",
+            ),
+        ),
+    )
+
+    def create_provider(
+        provider_config: object,
+        *,
+        credential_store: FileCredentialStore | None = None,
+        model: str | None = None,
+        thinking_level: str | None = None,
+    ) -> FakeProvider:
+        del provider_config, credential_store, model, thinking_level
+        return FakeProvider(
+            [
+                [
+                    ProviderResponseStartEvent(model="gpt-5"),
+                    ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
+                ]
+            ]
+        )
+
+    monkeypatch.setattr(coding_session_module, "create_model_provider", create_provider)
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=JsonlSessionStorage(current_record.path),
+            cwd=current_record.cwd,
+            session_id=current_record.id,
+            session_manager=manager,
+            provider_name="fake",
+            provider_settings=settings,
+        )
+    )
+
+    _message = await session.new_session()
+    pending_id = session.session_id
+
+    assert pending_id is not None
+    assert manager.get_session(pending_id) is None
+    assert all(record.id != pending_id for record in manager.list_sessions(tmp_path))
+
+    _events = await _collect_session_events(session.prompt("Hello"))
+
+    indexed = manager.get_session(pending_id)
+    assert indexed is not None
+    assert indexed.provider_name == "openai"
+    assert indexed.model == "gpt-5"
+    assert indexed.path.exists()
 
 
 @pytest.mark.anyio

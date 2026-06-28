@@ -3556,13 +3556,13 @@ def _create_startup_session_record(
     selection: ProviderSelection,
 ) -> CodingSessionRecord:
     try:
-        return manager.create_session(
+        return manager.prepare_session(
             cwd=cwd,
             model=selection.model,
             provider_name=selection.provider.name,
         )
     except TypeError:
-        return manager.create_session(cwd=cwd, model=selection.model)
+        return manager.prepare_session(cwd=cwd, model=selection.model)
 
 
 def _resolve_tui_startup_selection(
@@ -3693,12 +3693,14 @@ async def run_tui_app(
         runtime_provider_config = None
     session: CodingSession | None = None
     try:
+        index_on_first_persist = False
         if record is None:
             record = _create_startup_session_record(
                 manager,
                 cwd=cwd,
                 selection=selection,
             )
+            index_on_first_persist = manager.get_session(record.id) is None
 
         session = await CodingSession.load(
             CodingSessionConfig(
@@ -3712,6 +3714,7 @@ async def run_tui_app(
                 provider_settings=provider_settings,
                 runtime_provider_config=runtime_provider_config,
                 auto_compact_token_threshold=auto_compact_token_threshold,
+                index_on_first_persist=index_on_first_persist,
             )
         )
         app = TauTuiApp(
