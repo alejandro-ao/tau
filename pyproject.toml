@@ -26,10 +26,6 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.5",
 ]
-docs = [
-    "mkdocs>=1.6",
-    "mkdocs-material>=9.5",
-]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tau_ai", "src/tau_agent", "src/tau_coding"]

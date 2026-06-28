@@ -5,7 +5,11 @@ build/
 dist/
 wheels/
 *.egg-info
-site/
 
 # Virtual environments
 .venv
+
+# Astro / Starlight docs site (website/)
+website/node_modules/
+website/dist/
+website/.astro/

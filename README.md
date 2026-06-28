@@ -117,7 +117,7 @@ tau --version
 For development:
 
 ```bash
-uv sync --dev --group docs
+uv sync --dev
 uv run tau --version
 ```
 
@@ -288,7 +288,7 @@ frontend by consuming the same event stream.
 Set up the repository:
 
 ```bash
-uv sync --dev --group docs
+uv sync --dev
 ```
 
 Run checks:
@@ -307,34 +307,45 @@ uv run tau
 uv run tau -p "explain this repo"
 ```
 
-Run the documentation site:
+Run the documentation site (Astro Starlight, in `website/`):
 
 ```bash
-uv run --group docs mkdocs serve
+cd website
+bun install
+bun run dev
 ```
 
-Then open `http://127.0.0.1:8000`.
+Then open `http://localhost:4321/tau/`. Build the static site with `bun run build` (output in `website/dist/`).
 
-## Documentation map
+## Documentation
 
-- [Getting Started](docs/getting-started.md)
-- [Installation](docs/installation.md)
-- [Configuration and Files](docs/configuration.md)
-- [Providers](docs/providers.md)
-- [Architecture](docs/01-architecture.md)
-- [Architecture phase notes](docs/architecture/index.md)
-- [Agent Loop](docs/agent-loop.md)
-- [Agent Harness](docs/harness.md)
-- [Tools](docs/03-tools.md)
-- [Sessions](docs/04-sessions.md)
-- [Building a Custom TUI](docs/custom-tui.md)
-- [Roadmap](docs/00-roadmap.md)
+The user-facing docs are published at <https://alejandro-ao.github.io/tau/>.
+Their source lives in `website/src/content/docs/`:
+
+- [What is Tau?](website/src/content/docs/what-is-tau.md)
+- [Quickstart](website/src/content/docs/quickstart.md)
+- [Core concepts](website/src/content/docs/concepts.md)
+- Guides — [the TUI](website/src/content/docs/guides/tui.md),
+  [sessions](website/src/content/docs/guides/sessions.md),
+  [providers & models](website/src/content/docs/guides/providers-and-models.md),
+  [skills & prompts](website/src/content/docs/guides/skills-and-prompts.md),
+  [context](website/src/content/docs/guides/context.md)
+- Reference — [CLI](website/src/content/docs/reference/cli.md),
+  [slash commands](website/src/content/docs/reference/slash-commands.md),
+  [keybindings](website/src/content/docs/reference/keybindings.md),
+  [configuration](website/src/content/docs/reference/configuration.md),
+  [tools](website/src/content/docs/reference/tools.md)
+- How Tau works — [architecture](website/src/content/docs/internals/architecture.md),
+  [the agent loop](website/src/content/docs/internals/agent-loop.md)
+
+Contributor build journals (phase notes, design docs, ADRs) live in
+[`dev-notes/`](dev-notes/README.md) and are intentionally not published.
 
 ## Project status
 
 Tau is under active development. The implementation roadmap is tracked in
-[GitHub issue #1](https://github.com/alejandro-ao/tau/issues/1), and the docs
-under `docs/architecture/` record the completed phases.
+[GitHub issue #1](https://github.com/alejandro-ao/tau/issues/1), and the notes
+under [`dev-notes/architecture/`](dev-notes/architecture/) record the completed phases.
 
 The goal is not to hide complexity. The goal is to make each part of a coding
 agent visible, testable, and understandable.

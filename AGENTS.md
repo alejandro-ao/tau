@@ -62,10 +62,13 @@ Do not let Textual become a dependency of the reusable agent harness.
 
 ## Documentation Expectations
 
-Each substantial phase should leave behind beginner-friendly documentation under `docs/`, explaining:
+Each substantial phase should leave behind beginner-friendly notes under `dev-notes/` (build journals, design docs, ADRs), explaining:
 
 - what was added
 - why it exists
 - how it maps to Pi's design
 - how to test or use it
+
+When a phase adds or changes user-facing behavior, also update the published docs
+under `website/src/content/docs/` (the "Use Tau" guides and reference).
 
