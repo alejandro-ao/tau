@@ -199,6 +199,7 @@ def create_default_command_registry() -> CommandRegistry:
             usage="/quit",
             description="Exit the current session.",
             handler=_exit_command,
+            aliases=("exit",),
         )
     )
     registry.register(

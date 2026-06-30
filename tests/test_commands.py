@@ -119,7 +119,7 @@ def test_quit_and_new_return_control_flags(tmp_path: Path) -> None:
     session = FakeSession(tmp_path)
 
     assert registry.execute(session, "/quit").exit_requested is True
-    assert registry.execute(session, "/exit").message == "Unknown command: /exit"
+    assert registry.execute(session, "/exit").exit_requested is True
     assert registry.execute(session, "/q").message == "Unknown command: /q"
     assert registry.execute(session, "/new").new_session_requested is True
     assert registry.execute(session, "/clear").message == "Unknown command: /clear"
