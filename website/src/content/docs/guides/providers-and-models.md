@@ -61,14 +61,24 @@ access tokens automatically. It's separate from the API-key `openai` provider.
 
 ## Adding a custom / local provider
 
-Any OpenAI-compatible endpoint works — including local servers like Ollama or
-llama.cpp. Register one with `tau setup`:
+Any OpenAI-compatible endpoint works — including local servers like
+[llama.cpp](https://github.com/ggml-org/llama.cpp) or Ollama. The most common
+setup is **llama.cpp**'s `llama serve`, which speaks the OpenAI
+chat-completions API directly:
 
 ```bash
+llama serve -hf ggml-org/Qwen3.6-35B-A3B-GGUF:Q8_0
+```
+
+Then register it with `tau setup`. `llama serve` ignores the bearer token
+unless you launched it with `--api-key`, so any value for `LLAMA_API_KEY` works:
+
+```bash
+export LLAMA_API_KEY=local   # any non-empty value; only enforced if you set --api-key
 tau --provider local \
-  --base-url http://localhost:11434/v1 \
-  --api-key-env LOCAL_API_KEY \
-  --model qwen \
+  --base-url http://localhost:8080/v1 \
+  --api-key-env LLAMA_API_KEY \
+  --model local \
   setup
 ```
 
@@ -80,6 +90,10 @@ tau --provider local
 tau --provider local "summarize this project"   # TUI with an initial prompt
 tau --provider local -p "summarize this project" # one-shot print mode
 ```
+
+Other OpenAI-compatible servers register the same way — point `--base-url` at
+their endpoint (e.g. `http://localhost:11434/v1` for Ollama) and pass the
+matching `--api-key-env` and `--model`.
 
 Provider entries support `headers`, `timeout_seconds`, `max_retries`, and
 `max_retry_delay_seconds`. For the full JSON shape (and `thinking_levels` for
