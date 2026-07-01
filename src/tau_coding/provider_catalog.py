@@ -1,11 +1,30 @@
 """Built-in provider catalog for Tau login/setup flows."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
 from tau_coding.thinking import ThinkingLevel, ThinkingParameter
 
 ProviderKind = Literal["openai-compatible", "anthropic", "openai-codex"]
+
+
+@dataclass(frozen=True, slots=True)
+class ThinkingMode:
+    """A canonical Tau thinking level's provider-specific behavior."""
+
+    api_value: str | None = None
+    label: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderModelOverride:
+    """Built-in model behavior that differs from its provider defaults."""
+
+    kind: ProviderKind | None = None
+    thinking_modes: Mapping[ThinkingLevel, ThinkingMode] | None = None
+    thinking_default: ThinkingLevel | None = None
+    always_thinking: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +45,7 @@ class ProviderCatalogEntry:
     thinking_models: tuple[str, ...] = ()
     thinking_default: ThinkingLevel | None = None
     thinking_parameter: ThinkingParameter | None = None
+    model_overrides: dict[str, ProviderModelOverride] | None = None
 
 
 BUILTIN_PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
@@ -233,6 +253,128 @@ BUILTIN_PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         thinking_default="medium",
         thinking_parameter="reasoning_effort",
     ),
+    ProviderCatalogEntry(
+        name="opencode-go",
+        display_name="OpenCode Go",
+        kind="openai-compatible",
+        base_url="https://opencode.ai/zen/go/v1",
+        api_key_env="OPENCODE_GO_API_KEY",
+        credential_name="opencode-go",
+        models=(
+            "glm-5.2",
+            "glm-5.1",
+            "kimi-k2.7-code",
+            "kimi-k2.6",
+            "deepseek-v4-pro",
+            "deepseek-v4-flash",
+            "mimo-v2.5",
+            "mimo-v2.5-pro",
+            "minimax-m3",
+            "minimax-m2.7",
+            "qwen3.7-max",
+            "qwen3.7-plus",
+            "qwen3.6-plus",
+        ),
+        default_model="deepseek-v4-pro",
+        docs_url="https://opencode.ai/docs/go",
+        context_windows={
+            "glm-5.2": 1_000_000,
+            "glm-5.1": 202_752,
+            "kimi-k2.7-code": 262_144,
+            "kimi-k2.6": 262_144,
+            "deepseek-v4-pro": 1_000_000,
+            "deepseek-v4-flash": 1_000_000,
+            "mimo-v2.5": 1_000_000,
+            "mimo-v2.5-pro": 1_048_576,
+            "minimax-m3": 1_000_000,
+            "minimax-m2.7": 204_800,
+            "qwen3.7-max": 1_000_000,
+            "qwen3.7-plus": 1_000_000,
+            "qwen3.6-plus": 1_000_000,
+        },
+        thinking_levels=("off", "low", "medium", "high", "xhigh"),
+        thinking_models=(
+            "glm-5.2",
+            "deepseek-v4-pro",
+            "deepseek-v4-flash",
+            "minimax-m3",
+            "qwen3.7-max",
+            "qwen3.7-plus",
+            "qwen3.6-plus",
+        ),
+        thinking_default="medium",
+        thinking_parameter="reasoning_effort",
+        model_overrides={
+            "glm-5.2": ProviderModelOverride(
+                thinking_modes={
+                    "high": ThinkingMode(api_value="high"),
+                    "xhigh": ThinkingMode(api_value="max", label="max"),
+                },
+                thinking_default="high",
+            ),
+            "glm-5.1": ProviderModelOverride(always_thinking=True),
+            "kimi-k2.7-code": ProviderModelOverride(always_thinking=True),
+            "kimi-k2.6": ProviderModelOverride(always_thinking=True),
+            "deepseek-v4-pro": ProviderModelOverride(
+                thinking_modes={
+                    "high": ThinkingMode(api_value="high"),
+                    "xhigh": ThinkingMode(api_value="max", label="max"),
+                },
+                thinking_default="high",
+            ),
+            "deepseek-v4-flash": ProviderModelOverride(
+                thinking_modes={
+                    "high": ThinkingMode(api_value="high"),
+                    "xhigh": ThinkingMode(api_value="max", label="max"),
+                },
+                thinking_default="high",
+            ),
+            "mimo-v2.5": ProviderModelOverride(always_thinking=True),
+            "mimo-v2.5-pro": ProviderModelOverride(always_thinking=True),
+            "minimax-m3": ProviderModelOverride(
+                kind="anthropic",
+                thinking_modes={
+                    "off": ThinkingMode(api_value="disabled"),
+                    "high": ThinkingMode(api_value="adaptive", label="on"),
+                },
+                thinking_default="high",
+            ),
+            "minimax-m2.7": ProviderModelOverride(kind="anthropic", always_thinking=True),
+            "qwen3.7-max": ProviderModelOverride(
+                kind="anthropic",
+                thinking_modes={
+                    "off": ThinkingMode(api_value="disabled"),
+                    "low": ThinkingMode(),
+                    "medium": ThinkingMode(),
+                    "high": ThinkingMode(),
+                    "xhigh": ThinkingMode(),
+                },
+                thinking_default="medium",
+            ),
+            "qwen3.7-plus": ProviderModelOverride(
+                kind="anthropic",
+                thinking_modes={
+                    "off": ThinkingMode(api_value="disabled"),
+                    "low": ThinkingMode(),
+                    "medium": ThinkingMode(),
+                    "high": ThinkingMode(),
+                    "xhigh": ThinkingMode(),
+                },
+                thinking_default="medium",
+            ),
+            "qwen3.6-plus": ProviderModelOverride(
+                kind="anthropic",
+                thinking_modes={
+                    "off": ThinkingMode(api_value="disabled"),
+                    "low": ThinkingMode(),
+                    "medium": ThinkingMode(),
+                    "high": ThinkingMode(),
+                    "xhigh": ThinkingMode(),
+                },
+                thinking_default="medium",
+            ),
+        },
+    ),
 )
 
 
@@ -242,3 +384,13 @@ def builtin_provider_entry(name: str) -> ProviderCatalogEntry | None:
         if entry.name == name:
             return entry
     return None
+
+
+def catalog_model_override(provider_name: str, model: str | None) -> ProviderModelOverride | None:
+    """Return built-in metadata for a provider/model pair."""
+    if model is None:
+        return None
+    entry = builtin_provider_entry(provider_name)
+    if entry is None or entry.model_overrides is None:
+        return None
+    return entry.model_overrides.get(model)
