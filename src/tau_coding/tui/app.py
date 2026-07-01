@@ -80,6 +80,7 @@ from tau_coding.session import (
     parse_terminal_command,
 )
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
+from tau_coding.shell_config import load_shell_settings
 from tau_coding.thinking import DEFAULT_THINKING_LEVEL
 from tau_coding.tui.adapter import TuiEventAdapter
 from tau_coding.tui.autocomplete import (
@@ -1476,8 +1477,9 @@ class TauTuiApp(App[None]):
         border: none;
         background: $tau-transcript-background;
         padding: 0 0 0 2;
+        overflow-x: auto;
         scrollbar-size-vertical: 0;
-        scrollbar-size-horizontal: 0;
+        scrollbar-size-horizontal: 1;
     }
 
     #queued-messages {
@@ -1774,13 +1776,9 @@ class TauTuiApp(App[None]):
         self._bindings = BindingsMap(_app_bindings(self.tui_settings.keybindings))
         self.session = session
         self.state = TuiState(skills=session.skills)
-        self.state.load_messages(session.messages)
+        self._prompt_history: tuple[str, ...] = ()
+        self._load_session_messages_from_session()
         self.adapter = TuiEventAdapter(self.state)
-        self._prompt_history = tuple(
-            message.content
-            for message in session.messages
-            if isinstance(message, UserMessage) and message.content.strip()
-        )
         self._prompt_worker: Worker[None] | None = None
         self._compaction_worker: Worker[None] | None = None
         self._prompt_run_id = 0
@@ -1955,8 +1953,8 @@ class TauTuiApp(App[None]):
                     prompt.text = raw_text
                     prompt.move_cursor(_text_end_location(raw_text))
                     self._notify(
-                        "Wait for the current agent turn and queued messages "
-                        "to finish before compacting.",
+                        "Wait for the current agent turn and queued messages to finish "
+                        "before compacting.",
                         severity="warning",
                     )
                     return
@@ -2025,6 +2023,15 @@ class TauTuiApp(App[None]):
             return
         self._prompt_history = (*self._prompt_history, text)
 
+    def _load_session_messages_from_session(self) -> None:
+        """Load visible session messages and reseed prompt history from them."""
+        self.state.load_messages(self.session.messages)
+        self._prompt_history = tuple(
+            message.content
+            for message in self.session.messages
+            if isinstance(message, UserMessage) and message.content.strip()
+        )
+
     def _is_compaction_active(self) -> bool:
         """Return whether a manual compaction worker is still running."""
         worker = self._compaction_worker
@@ -2059,7 +2066,7 @@ class TauTuiApp(App[None]):
             self._compaction_worker = None
         self.state.clear()
         self.state.set_skills(self.session.skills)
-        self.state.load_messages(self.session.messages)
+        self._load_session_messages_from_session()
         self._notify(compact_message)
         self._refresh()
 
@@ -2251,7 +2258,7 @@ class TauTuiApp(App[None]):
         self._compaction_worker = None
         self.state.clear()
         self.state.set_skills(self.session.skills)
-        self.state.load_messages(self.session.messages)
+        self._load_session_messages_from_session()
         self._refresh()
         if notify:
             self._notify("Cancelled compaction.")
@@ -2354,6 +2361,8 @@ class TauTuiApp(App[None]):
     def action_recall_previous_prompt(self) -> bool:
         """Recall the most recent submitted prompt into an empty prompt input."""
         prompt = self.query_one("#prompt", PromptInput)
+        # Only recall into an empty input so an accidental Up press does not
+        # erase a prompt the user is still writing.
         if prompt.text.strip() or not self._prompt_history:
             return False
         previous_prompt = self._prompt_history[-1]
@@ -2438,7 +2447,7 @@ class TauTuiApp(App[None]):
             resume_message = await self.session.resume(session_id)
             self.state.clear()
             self.state.set_skills(self.session.skills)
-            self.state.load_messages(self.session.messages)
+            self._load_session_messages_from_session()
             self._notify(resume_message)
         except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
             self._notify(f"Error: {exc}", severity="error")
@@ -2500,7 +2509,7 @@ class TauTuiApp(App[None]):
                 result = await result
             self.state.clear()
             self.state.set_skills(self.session.skills)
-            self.state.load_messages(self.session.messages)
+            self._load_session_messages_from_session()
             if isinstance(result, SessionTreeBranchResult):
                 if result.input_prefill is not None:
                     prompt = self.query_one("#prompt", PromptInput)
@@ -2524,7 +2533,7 @@ class TauTuiApp(App[None]):
             await new_session()
             self.state.clear()
             self.state.set_skills(self.session.skills)
-            self.state.load_messages(self.session.messages)
+            self._load_session_messages_from_session()
         except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
             self._notify(f"Error: {exc}", severity="error")
         self._refresh()
@@ -3323,7 +3332,7 @@ def _filter_model_choices(choices: Sequence[ModelChoice], query: str) -> tuple[M
 def _command_message_uses_transcript(command_text: str) -> bool:
     """Return whether slash-command output should appear inline in the transcript."""
     command_name = command_text.split(maxsplit=1)[0].casefold()
-    return command_name == "/reload"
+    return command_name in {"/reload", "/system"}
 
 
 def _command_message_uses_notification(command_text: str, message: str) -> bool:
@@ -3589,13 +3598,13 @@ def _create_startup_session_record(
     selection: ProviderSelection,
 ) -> CodingSessionRecord:
     try:
-        return manager.create_session(
+        return manager.prepare_session(
             cwd=cwd,
             model=selection.model,
             provider_name=selection.provider.name,
         )
     except TypeError:
-        return manager.create_session(cwd=cwd, model=selection.model)
+        return manager.prepare_session(cwd=cwd, model=selection.model)
 
 
 def _resolve_tui_startup_selection(
@@ -3697,6 +3706,7 @@ async def run_tui_app(
         raise RuntimeError("--resume and --new-session cannot be used together")
 
     provider_settings = load_provider_settings()
+    shell_settings = load_shell_settings()
     manager = session_manager or SessionManager()
     record = _explicit_resume_record(
         manager,
@@ -3726,12 +3736,14 @@ async def run_tui_app(
         runtime_provider_config = None
     session: CodingSession | None = None
     try:
+        index_on_first_persist = False
         if record is None:
             record = _create_startup_session_record(
                 manager,
                 cwd=cwd,
                 selection=selection,
             )
+            index_on_first_persist = manager.get_session(record.id) is None
 
         session = await CodingSession.load(
             CodingSessionConfig(
@@ -3745,6 +3757,8 @@ async def run_tui_app(
                 provider_settings=provider_settings,
                 runtime_provider_config=runtime_provider_config,
                 auto_compact_token_threshold=auto_compact_token_threshold,
+                index_on_first_persist=index_on_first_persist,
+                shell_command_prefix=shell_settings.shell_command_prefix,
             )
         )
         app = TauTuiApp(

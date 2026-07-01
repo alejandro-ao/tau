@@ -405,6 +405,50 @@ async def test_terminal_command_can_run_without_context(tmp_path: Path) -> None:
     assert not any(isinstance(entry, MessageEntry) for entry in entries)
 
 
+@pytest.mark.anyio
+async def test_terminal_command_uses_configured_shell_command_prefix(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=storage,
+            cwd=tmp_path,
+            shell_command_prefix="shopt -s expand_aliases\nalias greet='printf terminal-alias'",
+        )
+    )
+
+    result = await session.run_terminal_command("greet", add_to_context=False)
+
+    assert result.ok is True
+    assert result.output == "terminal-alias"
+    assert result.added_to_context is False
+
+
+@pytest.mark.anyio
+async def test_agent_bash_tool_uses_configured_shell_command_prefix(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=storage,
+            cwd=tmp_path,
+            shell_command_prefix="shopt -s expand_aliases\nalias greet='printf agent-alias'",
+        )
+    )
+    bash_tool = next(tool for tool in session.tools if tool.name == "bash")
+
+    result = await bash_tool.execute({"command": "greet"})
+
+    assert result.ok is True
+    assert result.content == "agent-alias"
+    assert result.data is not None
+    assert result.data["shell_command_prefix_applied"] is True
+
+
 def test_parse_terminal_command_prefixes() -> None:
     assert parse_terminal_command("! pwd") is not None
     add_request = parse_terminal_command("! pwd")
@@ -1300,6 +1344,34 @@ async def test_session_loads_and_expands_skills(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_system_command_shows_prompt_without_persisting_or_adding_context(
+    tmp_path: Path,
+) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    provider = FakeProvider([])
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=provider,
+            model="fake",
+            system="You are Tau.",
+            storage=storage,
+            cwd=tmp_path,
+        )
+    )
+
+    before_messages = session.messages
+    before_entries = await storage.read_all()
+
+    result = session.handle_command("/system")
+
+    assert result.handled is True
+    assert result.message == "You are Tau."
+    assert session.messages == before_messages
+    assert await storage.read_all() == before_entries
+    assert provider.calls == []
+
+
+@pytest.mark.anyio
 async def test_session_expands_prompt_templates_as_slash_commands(tmp_path: Path) -> None:
     resource_root = tmp_path / "resources"
     prompts_dir = resource_root / "prompts"
@@ -2024,6 +2096,38 @@ async def test_session_toggles_and_cycles_scoped_models(
 
 
 @pytest.mark.anyio
+async def test_session_resume_preserves_shell_command_prefix(tmp_path: Path) -> None:
+    manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
+    first_cwd = tmp_path / "first"
+    second_cwd = tmp_path / "second"
+    first_cwd.mkdir()
+    second_cwd.mkdir()
+    first_record = manager.create_session(cwd=first_cwd, model="fake", title="First")
+    second_record = manager.create_session(cwd=second_cwd, model="fake", title="Second")
+    second_storage = JsonlSessionStorage(second_record.path)
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=JsonlSessionStorage(first_record.path),
+            cwd=first_record.cwd,
+            session_id=first_record.id,
+            session_manager=manager,
+            shell_command_prefix="shopt -s expand_aliases\nalias greet='printf resumed-alias'",
+        )
+    )
+    await second_storage.append(SessionInfoEntry(cwd=str(second_record.cwd)))
+    await second_storage.append(ModelChangeEntry(model="fake"))
+
+    await session.resume(second_record.id)
+    result = await session.run_terminal_command("greet", add_to_context=False)
+
+    assert result.ok is True
+    assert result.output == "resumed-alias"
+
+
+@pytest.mark.anyio
 async def test_session_resumes_indexed_session(tmp_path: Path) -> None:
     manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
     first_record = manager.create_session(cwd=tmp_path / "first", model="fake", title="First")
@@ -2334,9 +2438,73 @@ async def test_session_new_session_uses_default_provider_model(
     assert message.startswith("Started new session: ")
     assert session.provider_name == "openai"
     assert session.model == "gpt-5"
-    assert manager.get_session(session.session_id).provider_name == "openai"  # type: ignore[arg-type]
-    assert manager.get_session(session.session_id).model == "gpt-5"  # type: ignore[arg-type]
+    assert manager.get_session(session.session_id) is None
     assert created == [("openai", "gpt-5")]
+
+
+@pytest.mark.anyio
+async def test_session_new_session_is_indexed_after_first_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
+    current_record = manager.create_session(cwd=tmp_path, model="fake", provider_name="fake")
+    settings = ProviderSettings(
+        default_provider="openai",
+        providers=(
+            OpenAICompatibleProviderConfig(
+                name="openai",
+                models=("gpt-5",),
+                default_model="gpt-5",
+            ),
+        ),
+    )
+
+    def create_provider(
+        provider_config: object,
+        *,
+        credential_store: FileCredentialStore | None = None,
+        model: str | None = None,
+        thinking_level: str | None = None,
+    ) -> FakeProvider:
+        del provider_config, credential_store, model, thinking_level
+        return FakeProvider(
+            [
+                [
+                    ProviderResponseStartEvent(model="gpt-5"),
+                    ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
+                ]
+            ]
+        )
+
+    monkeypatch.setattr(coding_session_module, "create_model_provider", create_provider)
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=JsonlSessionStorage(current_record.path),
+            cwd=current_record.cwd,
+            session_id=current_record.id,
+            session_manager=manager,
+            provider_name="fake",
+            provider_settings=settings,
+        )
+    )
+
+    _message = await session.new_session()
+    pending_id = session.session_id
+
+    assert pending_id is not None
+    assert manager.get_session(pending_id) is None
+    assert all(record.id != pending_id for record in manager.list_sessions(tmp_path))
+
+    _events = await _collect_session_events(session.prompt("Hello"))
+
+    indexed = manager.get_session(pending_id)
+    assert indexed is not None
+    assert indexed.provider_name == "openai"
+    assert indexed.model == "gpt-5"
+    assert indexed.path.exists()
 
 
 @pytest.mark.anyio
@@ -2462,5 +2630,5 @@ def test_minimal_commands_are_handled(tmp_path: Path) -> None:
     assert session.handle_command("/new").new_session_requested is True
     assert session.handle_command("/clear").message == "Unknown command: /clear"
     assert session.handle_command("/quit").exit_requested is True
-    assert session.handle_command("/exit").message == "Unknown command: /exit"
+    assert session.handle_command("/exit").exit_requested is True
     assert session.handle_command("/unknown").message == "Unknown command: /unknown"

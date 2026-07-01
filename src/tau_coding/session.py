@@ -190,6 +190,8 @@ class CodingSessionConfig:
     auto_compact_token_threshold: int | None = None
     auto_compact_enabled: bool = True
     thinking_level: ThinkingLevel = DEFAULT_THINKING_LEVEL
+    index_on_first_persist: bool = False
+    shell_command_prefix: str | None = None
 
 
 class CodingSession:
@@ -262,7 +264,14 @@ class CodingSession:
             if latest_leaf is not None
             else linear_state
         )
-        tools = config.tools if config.tools is not None else create_coding_tools(cwd=config.cwd)
+        tools = (
+            config.tools
+            if config.tools is not None
+            else create_coding_tools(
+                cwd=config.cwd,
+                shell_command_prefix=config.shell_command_prefix,
+            )
+        )
         resource_paths = resource_paths_with_cwd(config.resource_paths, config.cwd)
         resources = _load_session_resources(resource_paths, config.context_files)
         system = (
@@ -540,6 +549,11 @@ class CodingSession:
             messages=self._harness.messages,
             tools=tuple(self._harness.config.tools),
         )
+
+    @property
+    def system_prompt(self) -> str:
+        """Return the effective system prompt sent to the model."""
+        return self._harness.config.system
 
     @property
     def auto_compact_token_threshold(self) -> int | None:
@@ -931,6 +945,7 @@ class CodingSession:
                 auto_compact_token_threshold=self._auto_compact_token_threshold,
                 auto_compact_enabled=self._auto_compact_enabled,
                 thinking_level=self._thinking_level,
+                shell_command_prefix=self._config.shell_command_prefix,
             )
         )
         self._config = replacement._config
@@ -952,7 +967,7 @@ class CodingSession:
         return f"Resumed session: {record.id}"
 
     async def new_session(self) -> str:
-        """Replace this session's active state with a newly indexed session."""
+        """Replace this session's active state with a pending unindexed session."""
         manager = self._config.session_manager
         if manager is None:
             raise ValueError("Session manager is not available")
@@ -972,7 +987,7 @@ class CodingSession:
                 current=self._thinking_level,
             )
 
-        record = manager.create_session(
+        record = manager.prepare_session(
             cwd=self.cwd,
             model=model,
             provider_name=provider_name,
@@ -989,6 +1004,7 @@ class CodingSession:
                 provider_settings=self._provider_settings,
                 runtime_provider_config=runtime_provider_config,
                 thinking_level=thinking_level,
+                index_on_first_persist=True,
             )
         )
         self._config = replacement._config
@@ -1057,7 +1073,10 @@ class CodingSession:
         if not normalized_command:
             raise ValueError("Terminal command cannot be empty")
 
-        bash_tool = create_bash_tool(cwd=self.cwd)
+        bash_tool = create_bash_tool(
+            cwd=self.cwd,
+            shell_command_prefix=self._config.shell_command_prefix,
+        )
         result = await bash_tool.execute({"command": normalized_command})
         exit_code = None
         if result.data is not None:
@@ -1249,6 +1268,21 @@ class CodingSession:
         for entry in self._pending_initial_entries:
             await self._config.storage.append(entry)
         self._pending_initial_entries = ()
+        if self._config.index_on_first_persist:
+            self._index_current_session()
+
+    def _index_current_session(self) -> None:
+        if self._config.session_id is None or self._config.session_manager is None:
+            return
+        existing = self._config.session_manager.get_session(self._config.session_id)
+        if existing is not None:
+            return
+        self._config.session_manager.create_session(
+            cwd=self.cwd,
+            model=self.model,
+            provider_name=self.provider_name,
+            session_id=self._config.session_id,
+        )
 
     async def _try_auto_compact(
         self,

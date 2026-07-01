@@ -144,6 +144,7 @@ class FakeSession:
         self.available_thinking_levels = ("off", "minimal", "low", "medium", "high", "xhigh")
         self.state = FakeSessionState()
         self.resource_diagnostics = ()
+        self.system_prompt = "You are Tau."
         self.session_manager = None
         self.compact_summaries: list[str] = []
         self.resumed_session_ids: list[str] = []
@@ -178,6 +179,8 @@ class FakeSession:
                 handled=True,
                 message="Reloaded local coding resources and project context.",
             )
+        if text == "/system":
+            return CommandResult(handled=True, message=self.system_prompt)
         if text == "/new":
             return CommandResult(handled=True, new_session_requested=True)
         if text == "/compact":
@@ -1066,12 +1069,26 @@ async def test_transcript_message_widget_extracts_plain_text_selection() -> None
 
 
 @pytest.mark.anyio
-async def test_streaming_transcript_deltas_do_not_force_scroll_end() -> None:
-    app = TauTuiApp(FakeSession(messages=[]))
+async def test_streaming_transcript_deltas_do_not_force_scroll_end_during_scrollback() -> None:
+    app = TauTuiApp(
+        FakeSession(
+            messages=[
+                UserMessage(content=f"message {index}\n" + "line\n" * 4) for index in range(12)
+            ]
+        )
+    )
 
-    async with app.run_test(size=(40, 20)) as pilot:
+    async with app.run_test(size=(40, 12)) as pilot:
         await pilot.pause()
         transcript = app.query_one("#transcript", TranscriptView)
+        transcript.follow_output()
+        await pilot.pause()
+        transcript.scroll_to(
+            y=max(0, transcript.max_scroll_y - 5),
+            animate=False,
+            immediate=True,
+        )
+        await pilot.pause()
         forced_scrolls = 0
         original_scroll_end = transcript.scroll_end
 
@@ -1087,6 +1104,141 @@ async def test_streaming_transcript_deltas_do_not_force_scroll_end() -> None:
         await pilot.pause()
 
     assert forced_scrolls == 0
+
+
+@pytest.mark.anyio
+async def test_streaming_transcript_deltas_follow_when_at_bottom() -> None:
+    app = TauTuiApp(
+        FakeSession(
+            messages=[
+                UserMessage(content=f"message {index}\n" + "line\n" * 4) for index in range(12)
+            ]
+        )
+    )
+
+    async with app.run_test(size=(40, 12)) as pilot:
+        await pilot.pause()
+        transcript = app.query_one("#transcript", TranscriptView)
+        transcript.follow_output()
+        await pilot.pause()
+        assert transcript.is_vertical_scroll_end
+
+        await transcript.append_assistant_delta("alpha\n" * 20)
+        for _ in range(5):
+            await pilot.pause()
+            if transcript.is_vertical_scroll_end:
+                break
+
+        assert transcript.is_vertical_scroll_end
+
+
+@pytest.mark.anyio
+async def test_streaming_transcript_deltas_preserve_user_scrollback() -> None:
+    app = TauTuiApp(
+        FakeSession(
+            messages=[
+                UserMessage(content=f"message {index}\n" + "line\n" * 4) for index in range(12)
+            ]
+        )
+    )
+
+    async with app.run_test(size=(40, 12)) as pilot:
+        await pilot.pause()
+        transcript = app.query_one("#transcript", TranscriptView)
+        transcript.follow_output()
+        await pilot.pause()
+        assert transcript.max_scroll_y > 0
+
+        transcript.scroll_to(
+            y=max(0, transcript.max_scroll_y - 5),
+            animate=False,
+            immediate=True,
+        )
+        await pilot.pause()
+        scrollback_y = transcript.scroll_y
+        assert not transcript.is_vertical_scroll_end
+
+        await transcript.append_assistant_delta("alpha\n" * 20)
+        await pilot.pause()
+
+        assert transcript.scroll_y == scrollback_y
+        assert not transcript.is_vertical_scroll_end
+
+
+@pytest.mark.anyio
+async def test_streaming_transcript_deltas_do_not_apply_stale_follow_scroll() -> None:
+    app = TauTuiApp(
+        FakeSession(
+            messages=[
+                UserMessage(content=f"message {index}\n" + "line\n" * 4) for index in range(12)
+            ]
+        )
+    )
+
+    async with app.run_test(size=(40, 12)) as pilot:
+        await pilot.pause()
+        transcript = app.query_one("#transcript", TranscriptView)
+        transcript.follow_output()
+        await pilot.pause()
+        assert transcript.is_vertical_scroll_end
+
+        await transcript.append_assistant_delta("alpha\n" * 20)
+        transcript.scroll_to(
+            y=max(0, transcript.max_scroll_y - 5),
+            animate=False,
+            immediate=True,
+        )
+        scrollback_y = transcript.scroll_y
+        assert not transcript.is_vertical_scroll_end
+
+        await pilot.pause()
+
+        assert transcript.scroll_y == scrollback_y
+        assert not transcript.is_vertical_scroll_end
+
+
+@pytest.mark.anyio
+async def test_streaming_transcript_fractional_scrollback_after_refollow_stops_following() -> None:
+    app = TauTuiApp(
+        FakeSession(
+            messages=[
+                UserMessage(content=f"message {index}\n" + "line\n" * 4) for index in range(12)
+            ]
+        )
+    )
+
+    async with app.run_test(size=(40, 12)) as pilot:
+        await pilot.pause()
+        transcript = app.query_one("#transcript", TranscriptView)
+        transcript.follow_output()
+        await pilot.pause()
+        assert transcript.is_vertical_scroll_end
+
+        transcript.scroll_to(
+            y=max(0, transcript.max_scroll_y - 5),
+            animate=False,
+            immediate=True,
+        )
+        await pilot.pause()
+        assert not transcript.is_vertical_scroll_end
+
+        transcript.scroll_end(animate=False, immediate=True)
+        await pilot.pause()
+        assert transcript.is_vertical_scroll_end
+
+        transcript.scroll_to(
+            y=max(0, transcript.max_scroll_y - 0.6),
+            animate=False,
+            immediate=True,
+        )
+        scrollback_y = transcript.scroll_y
+        assert not transcript.is_vertical_scroll_end
+
+        await transcript.append_assistant_delta("alpha\n" * 20)
+        await pilot.pause()
+
+        assert transcript.scroll_y == scrollback_y
+        assert not transcript.is_vertical_scroll_end
 
 
 @pytest.mark.anyio
@@ -1510,6 +1662,33 @@ async def test_tui_transcript_reflows_when_terminal_resizes() -> None:
         assert transcript.scroll_offset.x == 0
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("code", "has_horizontal_overflow"),
+    [
+        ("x = 1", False),
+        ("value = '" + ("x" * 140) + "'", True),
+    ],
+)
+async def test_tui_transcript_code_block_scrollbar_matches_overflow(
+    code: str,
+    has_horizontal_overflow: bool,
+) -> None:
+    app = TauTuiApp(FakeSession(messages=[AssistantMessage(content=f"```python\n{code}\n```")]))
+
+    async with app.run_test(size=(64, 30)) as pilot:
+        await pilot.pause()
+        transcript = app.query_one("#transcript", TranscriptView)
+        fence = app.query_one("MarkdownFence")
+        assert transcript.styles.overflow_x == "auto"
+        assert transcript.styles.scrollbar_size_horizontal == 1
+        assert fence.styles.scrollbar_size_horizontal == 1
+        assert fence.styles.overflow_x == "auto"
+        assert fence.allow_horizontal_scroll is True
+        assert (fence.max_scroll_x > 0) is has_horizontal_overflow
+        assert fence.show_horizontal_scrollbar is has_horizontal_overflow
+
+
 def test_tui_app_uses_configured_theme_css_variables() -> None:
     app = TauTuiApp(FakeSession(), tui_settings=TuiSettings(theme="high-contrast"))
 
@@ -1725,6 +1904,11 @@ async def test_tui_app_new_command_starts_new_visible_state() -> None:
         assert app.session.new_session_count == 1
         assert app.state.items == []
         assert notifications == []
+
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.value == ""
 
 
 @pytest.mark.anyio
@@ -1944,6 +2128,11 @@ async def test_tui_app_resume_command_reloads_visible_state() -> None:
         assert [(item.role, item.text) for item in app.state.items] == [
             ("user", "Restored prompt"),
         ]
+
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.value == "Restored prompt"
 
 
 @pytest.mark.anyio
@@ -2338,6 +2527,12 @@ async def test_tui_app_tree_picker_branches_with_summary() -> None:
         assert [(item.role, item.text) for item in app.state.items] == [
             ("user", "Branched to left"),
         ]
+
+        prompt = app.query_one("#prompt")
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.value == "Branched to left"
 
 
 @pytest.mark.anyio
@@ -2743,6 +2938,20 @@ async def test_tui_app_reload_appends_command_output_to_transcript() -> None:
             )
         ]
         assert [skill.name for skill in app.state.skills] == ["reloaded"]
+
+
+@pytest.mark.anyio
+async def test_tui_app_system_appends_command_output_to_transcript() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/system"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, CommandOutputScreen)
+        assert app.state.items == [ChatItem(role="status", text="/system\nYou are Tau.")]
 
 
 @pytest.mark.anyio
@@ -4092,14 +4301,14 @@ async def test_run_tui_app_falls_back_to_first_credentialed_provider(
             calls.append("provider_closed")
 
     class FakeManager:
-        def create_session(
+        def prepare_session(
             self,
             *,
             cwd: Path,
             model: str,
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
-            calls.append(f"create:{cwd}:{model}:{provider_name}")
+            calls.append(f"prepare:{cwd}:{model}:{provider_name}")
             return record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
@@ -4156,7 +4365,7 @@ async def test_run_tui_app_falls_back_to_first_credentialed_provider(
 
     assert calls == [
         "provider:openai:gpt-5.5",
-        f"create:{tmp_path}:gpt-5.5:openai",
+        f"prepare:{tmp_path}:gpt-5.5:openai",
         "load",
         "run",
         "provider_closed",
@@ -4198,14 +4407,14 @@ async def test_run_tui_app_ignores_latest_directory_provider_model_for_new_sessi
             calls.append(f"latest:{cwd}")
             return latest_record
 
-        def create_session(
+        def prepare_session(
             self,
             *,
             cwd: Path,
             model: str,
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
-            calls.append(f"create:{cwd}:{model}:{provider_name}")
+            calls.append(f"prepare:{cwd}:{model}:{provider_name}")
             return created_record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
@@ -4259,7 +4468,7 @@ async def test_run_tui_app_ignores_latest_directory_provider_model_for_new_sessi
 
     assert calls == [
         "provider:openai:gpt-5",
-        f"create:{tmp_path}:gpt-5:openai",
+        f"prepare:{tmp_path}:gpt-5:openai",
         "load",
         "run",
         "provider_closed",
@@ -4308,14 +4517,14 @@ async def test_run_tui_app_does_not_start_new_session_from_scoped_model(
             calls.append(f"latest:{cwd}")
             return latest
 
-        def create_session(
+        def prepare_session(
             self,
             *,
             cwd: Path,
             model: str,
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
-            calls.append(f"create:{cwd}:{model}:{provider_name}")
+            calls.append(f"prepare:{cwd}:{model}:{provider_name}")
             return record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
@@ -4369,7 +4578,7 @@ async def test_run_tui_app_does_not_start_new_session_from_scoped_model(
 
     assert calls == [
         "provider:openai:gpt-5.5",
-        f"create:{tmp_path}:gpt-5.5:openai",
+        f"prepare:{tmp_path}:gpt-5.5:openai",
         "load",
         "run",
         "provider_closed",
@@ -4396,14 +4605,14 @@ async def test_run_tui_app_creates_new_session_by_default(
             calls.append("provider_closed")
 
     class FakeManager:
-        def create_session(
+        def prepare_session(
             self,
             *,
             cwd: Path,
             model: str,
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
-            calls.append(f"create:{cwd}:{model}:{provider_name}")
+            calls.append(f"prepare:{cwd}:{model}:{provider_name}")
             return record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
@@ -4418,6 +4627,7 @@ async def test_run_tui_app_creates_new_session_by_default(
         async def load(cls, config: object) -> str:
             assert config.provider_name == "local"  # type: ignore[attr-defined]
             assert config.auto_compact_token_threshold == 1000  # type: ignore[attr-defined]
+            assert config.index_on_first_persist is True  # type: ignore[attr-defined]
             calls.append("load")
             return "session"
 
@@ -4461,7 +4671,13 @@ async def test_run_tui_app_creates_new_session_by_default(
         session_manager=FakeManager(),
     )
 
-    assert calls == [f"create:{tmp_path}:local-model:local", "load", "run", "provider_closed"]
+    assert calls == [
+        f"prepare:{tmp_path}:local-model:local",
+        "get:new-session",
+        "load",
+        "run",
+        "provider_closed",
+    ]
 
 
 @pytest.mark.anyio
@@ -4480,14 +4696,14 @@ async def test_run_tui_app_opens_when_provider_login_is_missing(
     )
 
     class FakeManager:
-        def create_session(
+        def prepare_session(
             self,
             *,
             cwd: Path,
             model: str,
             provider_name: str | None = None,
         ) -> CodingSessionRecord:
-            calls.append(f"create:{cwd}:{model}:{provider_name}")
+            calls.append(f"prepare:{cwd}:{model}:{provider_name}")
             return record
 
         def get_session(self, session_id: str) -> CodingSessionRecord | None:
@@ -4524,7 +4740,7 @@ async def test_run_tui_app_opens_when_provider_login_is_missing(
 
     await tui_app.run_tui_app(cwd=tmp_path, model=None, session_manager=FakeManager())
 
-    assert calls == [f"create:{tmp_path}:gpt-5.5:openai", "load:LoginRequiredProvider", "run"]
+    assert calls == [f"prepare:{tmp_path}:gpt-5.5:openai", "load:LoginRequiredProvider", "run"]
 
 
 @pytest.mark.anyio

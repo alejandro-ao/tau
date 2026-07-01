@@ -99,6 +99,13 @@ from tau_coding.session_export import (
     render_session_html,
 )
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
+from tau_coding.shell_config import (
+    ShellConfigError,
+    ShellSettings,
+    load_shell_settings,
+    shell_settings_from_json,
+    shell_settings_path,
+)
 from tau_coding.skills import (
     Skill,
     build_skill_index,
@@ -177,6 +184,8 @@ __all__ = [
     "ResourceError",
     "SessionManager",
     "SessionExportError",
+    "ShellConfigError",
+    "ShellSettings",
     "Skill",
     "SlashCommand",
     "TauPaths",
@@ -234,6 +243,7 @@ __all__ = [
     "FileCredentialStore",
     "jsonl_session_storage",
     "load_provider_settings",
+    "load_shell_settings",
     "load_prompt_templates",
     "load_prompt_templates_with_diagnostics",
     "load_skills",
@@ -253,6 +263,8 @@ __all__ = [
     "resolve_provider_selection",
     "save_default_provider_model",
     "save_provider_settings",
+    "shell_settings_from_json",
+    "shell_settings_path",
     "toggle_saved_scoped_model",
     "export_session_html",
     "upsert_provider",
