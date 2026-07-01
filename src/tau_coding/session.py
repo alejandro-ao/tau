@@ -1139,8 +1139,6 @@ class CodingSession:
         overflow_event: ErrorEvent | None = None
         try:
             async for event in self._harness.prompt(expanded_content):
-                if isinstance(event, MessageEndEvent):
-                    persisted_count = await self._persist_messages_since(persisted_count)
                 if isinstance(event, ErrorEvent) and not event.recoverable:
                     self._last_diagnostic_log_path = self._diagnostic_logger.log_error_event(
                         context=context,
@@ -1150,16 +1148,14 @@ class CodingSession:
                     if _is_context_overflow_error(event):
                         overflow_event = event
                 yield event
+                if isinstance(event, MessageEndEvent):
+                    persisted_count = await self._persist_messages_since(persisted_count)
             persisted_count = await self._persist_messages_since(persisted_count)
             if overflow_event is not None:
                 compacted = await self._try_overflow_compact(context=context)
                 if compacted:
                     retry_persisted_count = len(self._harness.messages)
                     async for retry_event in self._harness.continue_():
-                        if isinstance(retry_event, MessageEndEvent):
-                            retry_persisted_count = await self._persist_messages_since(
-                                retry_persisted_count
-                            )
                         if isinstance(retry_event, ErrorEvent) and not retry_event.recoverable:
                             self._last_diagnostic_log_path = (
                                 self._diagnostic_logger.log_error_event(
@@ -1169,6 +1165,10 @@ class CodingSession:
                                 )
                             )
                         yield retry_event
+                        if isinstance(retry_event, MessageEndEvent):
+                            retry_persisted_count = await self._persist_messages_since(
+                                retry_persisted_count
+                            )
                     await self._persist_messages_since(retry_persisted_count)
                 return
             await self._try_auto_compact(context=context, phase="auto_compact_after_prompt")
@@ -1186,8 +1186,6 @@ class CodingSession:
         persisted_count = len(self._harness.messages)
         try:
             async for event in self._harness.continue_():
-                if isinstance(event, MessageEndEvent):
-                    persisted_count = await self._persist_messages_since(persisted_count)
                 if isinstance(event, ErrorEvent) and not event.recoverable:
                     self._last_diagnostic_log_path = self._diagnostic_logger.log_error_event(
                         context=context,
@@ -1195,6 +1193,8 @@ class CodingSession:
                         event=event,
                     )
                 yield event
+                if isinstance(event, MessageEndEvent):
+                    persisted_count = await self._persist_messages_since(persisted_count)
             await self._persist_messages_since(persisted_count)
             await self._try_auto_compact(context=context, phase="auto_compact_after_continue")
         except Exception as exc:

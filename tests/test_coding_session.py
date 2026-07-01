@@ -9,6 +9,7 @@ from tau_agent import (
     AgentMessage,
     AgentTool,
     AssistantMessage,
+    MessageEndEvent,
     QueueUpdateEvent,
     ToolCall,
     ToolResultMessage,
@@ -93,6 +94,12 @@ class RaisingProvider:
             yield  # pragma: no cover
 
         return iterator()
+
+
+class FailingAppendStorage(JsonlSessionStorage):
+    async def append(self, entry: object) -> None:
+        del entry
+        raise RuntimeError("append blocked")
 
 
 class WaitingProvider:
@@ -370,6 +377,31 @@ async def test_prompt_persists_user_assistant_and_leaf_entries(tmp_path: Path) -
     assert entries[-1].type == "leaf"
     assert entries[-1].entry_id == message_entries[-1].id
     assert session.messages == (UserMessage(content="Hello"), AssistantMessage(content="Hi"))
+
+
+@pytest.mark.anyio
+async def test_prompt_yields_user_message_before_persisting_it(tmp_path: Path) -> None:
+    storage = FailingAppendStorage(tmp_path / "session.jsonl")
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Hi")),
+            ]
+        ]
+    )
+    session = await CodingSession.load(_config(tmp_path, provider, storage))
+
+    stream = session.prompt("Hello")
+    first_event = await anext(stream)
+    second_event = await anext(stream)
+
+    assert first_event.type == "message_start"
+    assert isinstance(second_event, MessageEndEvent)
+    assert second_event.message == UserMessage(content="Hello")
+
+    with pytest.raises(RuntimeError, match="append blocked"):
+        await anext(stream)
 
 
 @pytest.mark.anyio

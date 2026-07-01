@@ -193,6 +193,14 @@ class AgentHarness:
         self._current_signal = signal
         pending_prompt_event = prompt_message
         try:
+            if pending_prompt_event is not None:
+                start = MessageStartEvent(message_role="user")
+                end = MessageEndEvent(message=pending_prompt_event)
+                for prompt_event in (start, end):
+                    await self._notify(prompt_event)
+                    yield prompt_event
+                pending_prompt_event = None
+
             async for event in run_agent_loop(
                 provider=self._config.provider,
                 model=self._config.model,
@@ -207,13 +215,6 @@ class AgentHarness:
             ):
                 await self._notify(event)
                 yield event
-                if pending_prompt_event is not None and event.type == "turn_start":
-                    start = MessageStartEvent(message_role="user")
-                    end = MessageEndEvent(message=pending_prompt_event)
-                    for prompt_event in (start, end):
-                        await self._notify(prompt_event)
-                        yield prompt_event
-                    pending_prompt_event = None
         finally:
             if signal.is_cancelled():
                 self._append_interrupted_tool_results()

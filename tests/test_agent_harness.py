@@ -35,17 +35,17 @@ async def test_prompt_appends_user_message_and_assistant_response() -> None:
     events = [event async for event in harness.prompt("Hi")]
 
     assert [event.type for event in events] == [
-        "agent_start",
-        "turn_start",
         "message_start",
         "message_end",
+        "agent_start",
+        "turn_start",
         "message_start",
         "message_end",
         "turn_end",
         "agent_end",
     ]
-    assert events[2].message_role == "user"  # type: ignore[attr-defined]
-    assert events[3].message == UserMessage(content="Hi")  # type: ignore[attr-defined]
+    assert events[0].message_role == "user"  # type: ignore[attr-defined]
+    assert events[1].message == UserMessage(content="Hi")  # type: ignore[attr-defined]
     assert harness.messages == (UserMessage(content="Hi"), assistant)
 
 
@@ -150,10 +150,10 @@ async def test_subscribed_listeners_receive_events_and_can_unsubscribe() -> None
     _more_events = [event async for event in harness.continue_()]
 
     assert seen == [
-        "agent_start",
-        "turn_start",
         "message_start",
         "message_end",
+        "agent_start",
+        "turn_start",
         "message_start",
         "message_delta",
         "message_end",
@@ -185,10 +185,10 @@ async def test_cancel_requests_cancellation_for_current_run() -> None:
             harness.cancel()
 
     assert [event.type for event in events] == [
-        "agent_start",
-        "turn_start",
         "message_start",
         "message_end",
+        "agent_start",
+        "turn_start",
         "message_start",
         "message_delta",
         "error",
