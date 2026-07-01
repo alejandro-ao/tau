@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 from rich.panel import Panel
+from textual.color import Color
 from textual.containers import VerticalScroll
 from textual.geometry import Offset
 from textual.selection import SELECT_ALL, Selection
@@ -82,12 +83,13 @@ from tau_coding.tui.config import (
 from tau_coding.tui.state import ChatItem
 from tau_coding.tui.widgets import (
     LeftAlignedMarkdownHeading,
-    TauMarkdownBlock,
     StreamingTranscriptMessageWidget,
+    TauMarkdownBlock,
     ThemedMarkdownWidget,
     TranscriptMessageWidget,
     TranscriptView,
     _compact_token_count,
+    _split_rich_style_colors,
     _syntax_language,
     _transcript_plain_body_text,
     render_chat_item,
@@ -1069,6 +1071,40 @@ async def test_transcript_message_widget_extracts_plain_text_selection() -> None
             "beta",
             "\n",
         )
+
+
+@pytest.mark.anyio
+async def test_transcript_message_widget_renders_full_height_role_block() -> None:
+    plain_text = "alpha beta gamma\nsecond line\nthird line"
+    app = TauTuiApp(
+        FakeSession(messages=[UserMessage(content=plain_text)]),
+        tui_settings=TuiSettings(theme="high-contrast"),
+    )
+
+    role_style = HIGH_CONTRAST_THEME.role_styles["user"]
+    _, expected_background = _split_rich_style_colors(role_style.body)
+    background = Color.parse(expected_background)
+    border = Color.parse(role_style.border)
+
+    async with app.run_test(size=(60, 30)) as pilot:
+        await pilot.pause()
+        widget = app.query_one(TranscriptMessageWidget)
+        body = widget.query_one(".transcript-message-body")
+
+        # A multi-line message must occupy more than a single row so the accent
+        # and background have to span the full message height.
+        assert widget.size.height > 1
+
+        # The container owns the role background and a real left border, so the
+        # block is rectangular and the accent spans every wrapped line.
+        assert widget.styles.background == background
+        assert body.styles.background == background
+        edge_type, edge_color = widget.styles.border_left
+        assert edge_type != "none"
+        assert edge_color == border
+
+        # Selecting the whole message still yields the original plain text.
+        assert widget.get_selection(SELECT_ALL) == (plain_text, "\n")
 
 
 @pytest.mark.anyio

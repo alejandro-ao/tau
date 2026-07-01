@@ -108,12 +108,6 @@ class CompactSessionInfo(Static):
         self.update(render_compact_session_info(session, theme=theme))
 
 
-class NonSelectableStatic(Static):
-    """Static display text that should not participate in mouse selection."""
-
-    ALLOW_SELECT = False
-
-
 class TauMarkdownBlock(MarkdownBlock):
     """Markdown block that applies Tau's themed inline link color."""
 
@@ -197,18 +191,13 @@ class ThemedMarkdownWidget(TextualMarkdown):
 
 
 class TranscriptMessageWidget(Horizontal):
-    """One selectable transcript message with a non-selectable visual gutter."""
+    """One selectable transcript message rendered as a full-height role block."""
 
     DEFAULT_CSS = """
     TranscriptMessageWidget {
         width: 1fr;
         height: auto;
         margin: 1 1 2 0;
-    }
-
-    TranscriptMessageWidget > .transcript-message-gutter {
-        width: 1;
-        height: auto;
     }
 
     TranscriptMessageWidget > .transcript-message-body {
@@ -242,13 +231,17 @@ class TranscriptMessageWidget(Horizontal):
         self._theme = theme
         self._role_style = _chat_item_role_style(item, theme)
         super().__init__(classes="transcript-message")
+        foreground, background = _split_rich_style_colors(self._role_style.body)
+        self._body_foreground = foreground
+        self._body_background = background
+        # A real left border spans wrapped/multi-line content, unlike a one-line
+        # gutter child; the container background makes the block rectangular.
+        self.styles.border_left = ("tall", self._role_style.border)
+        if background:
+            self.styles.background = background
 
     def compose(self) -> Any:
-        gutter = NonSelectableStatic("▌", classes="transcript-message-gutter")
-        gutter.styles.color = self._role_style.border
-        body = self._body_widget()
-        yield gutter
-        yield body
+        yield self._body_widget()
 
     def _body_widget(self) -> Static | ThemedMarkdownWidget:
         if _use_plain_transcript_body(self.item):
@@ -270,11 +263,10 @@ class TranscriptMessageWidget(Horizontal):
                 theme=self._theme,
                 classes="transcript-message-body transcript-markdown-body",
             )
-            foreground, background = _split_rich_style_colors(self._role_style.body)
-            if foreground:
-                body.styles.color = foreground
-            if background:
-                body.styles.background = background
+        if self._body_foreground:
+            body.styles.color = self._body_foreground
+        if self._body_background:
+            body.styles.background = self._body_background
         return body
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
