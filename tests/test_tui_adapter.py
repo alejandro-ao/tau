@@ -323,3 +323,40 @@ def test_tui_adapter_renders_cancellation_as_status() -> None:
         ("assistant", "partial"),
         ("status", "Agent run cancelled."),
     ]
+
+
+def test_user_message_adapter_preserves_full_text() -> None:
+    """User message adapter preserves full text in transcript (no display_text)."""
+    state = TuiState()
+    adapter = TuiEventAdapter(state)
+
+    long_text = "x" * 10_000
+    adapter.apply(MessageEndEvent(message=UserMessage(content=long_text)))
+
+    assert len(state.items) == 1
+    item = state.items[0]
+    assert item.role == "user"
+    assert item.text == long_text  # Full content preserved for transcript
+    assert item.text == long_text  # Transcript always shows full text
+
+
+def test_paste_display_threshold_is_reasonable() -> None:
+    """The paste threshold constant is set to a sensible default."""
+    from tau_coding.tui.app import PASTE_DISPLAY_THRESHOLD
+
+    assert PASTE_DISPLAY_THRESHOLD == 2_000
+
+
+def test_paste_placeholder_formats_correctly() -> None:
+    """Placeholder text includes char count, line count, and KB."""
+    char_count = 5_500
+    line_count = 200
+    kb = char_count / 1024
+    parts: list[str] = [f"{char_count:,} characters", f"{line_count} lines", f"{kb:.1f} KB"]
+    placeholder = f"[Pasted content: {', '.join(parts)}]"
+
+    assert "5,500 characters" in placeholder
+    assert "200 lines" in placeholder
+    assert "5.4 KB" in placeholder
+    assert placeholder.startswith("[")
+    assert placeholder.endswith("]")

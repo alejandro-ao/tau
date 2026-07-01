@@ -187,6 +187,9 @@ class SessionCompletionRecord(Protocol):
     updated_at: float
 
 
+PASTE_DISPLAY_THRESHOLD = 2_000
+
+
 class PromptInput(TextArea):
     """Multiline prompt input with completion key bindings."""
 
@@ -205,6 +208,9 @@ class PromptInput(TextArea):
         self._base_bindings = self._bindings.copy()
         self._footer_mode: Literal["normal", "completion", "running"] = "normal"
         self._apply_prompt_bindings()
+        self._pending_full_content: str | None = None
+        self._last_text_length: int = 0
+        self._placeholder: str = ""
 
     def set_footer_mode(self, mode: Literal["normal", "completion", "running"]) -> None:
         """Switch the prompt bindings shown by Textual's built-in footer."""
@@ -300,6 +306,9 @@ class PromptInput(TextArea):
         if self.text:
             self.text = ""
             self.move_cursor((0, 0))
+            self._pending_full_content = None
+            self._last_text_length = 0
+            self._placeholder = ""
 
     def get_line(self, line_index: int) -> Text:
         """Retrieve one prompt line with shell prefixes highlighted."""
@@ -336,6 +345,27 @@ class PromptInput(TextArea):
     def action_scroll_up(self) -> None:
         """Use up arrow for completion selection while focused."""
         self.action_completion_previous()
+
+    def _detect_paste(self, new_text: str) -> None:
+        """Detect large paste and show placeholder in the input box."""
+        new_len = len(new_text)
+        delta = new_len - self._last_text_length
+
+        if delta > PASTE_DISPLAY_THRESHOLD and new_len > PASTE_DISPLAY_THRESHOLD:
+            char_count = new_len
+            line_count = new_text.count("\n") + 1
+            kb = char_count / 1024
+            parts: list[str] = [f"{char_count:,} characters"]
+            if line_count > 1:
+                parts.append(f"{line_count} lines")
+            if kb >= 1:
+                parts.append(f"{kb:.1f} KB")
+            self._placeholder = f"[Pasted content: {', '.join(parts)}]"
+            self._pending_full_content = new_text
+            self.text = self._placeholder
+            self.move_cursor((0, len(self._placeholder)))
+
+        self._last_text_length = len(self.text)
 
     async def on_key(self, event: Key) -> None:
         """Route completion and submission keys before default input handling."""
@@ -1892,6 +1922,8 @@ class TauTuiApp(App[None]):
         """Update prompt autocomplete when the prompt text changes."""
         if event.text_area.id != "prompt":
             return
+        prompt = self.query_one("#prompt", PromptInput)
+        prompt._detect_paste(event.text_area.text)
         self._sync_prompt_shell_mode(event.text_area.text)
         self._completion_state = self._build_completion_state(event.text_area.text)
         self._refresh_completions()
@@ -1910,6 +1942,11 @@ class TauTuiApp(App[None]):
         streaming_behavior: Literal["steer", "follow_up"],
     ) -> None:
         prompt = self.query_one("#prompt", PromptInput)
+        if prompt._pending_full_content is not None:
+            full = prompt._pending_full_content
+            extra = prompt.text.removeprefix(prompt._placeholder)
+            prompt.text = full + extra
+            prompt._pending_full_content = None
         raw_text = prompt.text
         applied_completion = self._apply_selected_completion(raw_text)
         if applied_completion is not None and applied_completion != raw_text:
